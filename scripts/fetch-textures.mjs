@@ -1,0 +1,362 @@
+/**
+ * One time asset fetch. Pulls established, published Earth texture sets rather
+ * than deriving anything by hand, then downsamples them to what the scene uses.
+ *
+ * Sources are tried in order and the first that responds wins. Whichever one is
+ * used is printed, because the licence differs:
+ *
+ *   solarsystemscope.com  CC BY 4.0, attribution required
+ *   NASA Visible Earth    public domain
+ *
+ * Writes:
+ *   public/textures/earth-day-hi.webp   6144x3072 colour
+ *   public/textures/earth-day-lo.webp   4096x2048, for GPUs capped at 4096
+ *   public/textures/earth-night.webp    2048x1024 city lights
+ *   public/textures/clouds.webp         2560x1280 greyscale, used as an alphaMap
+ *   public/textures/galaxy.webp/.avif   1376x768 deep space plate, from the
+ *                                       supplied Galaxy BG.png in the repo root
+ *
+ * Clouds are stored as a single greyscale image, not RGBA. The shell is pure
+ * white, so only coverage matters, and an alphaMap is roughly a quarter of the
+ * bytes of a four channel texture with no blockiness in the alpha.
+ *
+ *   npm run textures
+ *
+ * Outputs are committed. This is not part of build, because a homepage should
+ * never depend on a third party host being up at deploy time.
+ */
+
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import sharp from 'sharp'
+import { geoEquirectangular, geoPath } from 'd3-geo'
+import { feature, mesh } from 'topojson-client'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const outDir = resolve(root, 'public/textures')
+/* The four sources are 70 MB together. Cached so re-encoding at a different
+   quality does not mean downloading them again. Gitignored. */
+const cacheDir = resolve(root, '.texture-cache')
+mkdirSync(outDir, { recursive: true })
+mkdirSync(cacheDir, { recursive: true })
+
+/*
+  Sized for the worst case, which is the entry frame and only the entry frame.
+
+  The globe is at its most magnified at scroll position zero, then shrinks to a
+  full ball as the page scrolls, so peak magnification is brief. 6144 works out
+  at 1.07 texels per device pixel there, which is the right side of one. 8192
+  measured 1.42 and cost 1670 kB against 966, which is not worth 700 kB for
+  headroom nothing ever uses.
+*/
+const SIZES = {
+  /* City lights carry all of the surface detail, so this is the one that
+     matters. Black Marble is almost entirely black, so it compresses superbly:
+     4096 costs 165 kB. */
+  /*
+    5120, not 4096 or 6144. Measured, sharpened, at quality 70:
+      4096  255 kB    5120  392 kB    6144  545 kB
+    Most of the crispness comes from the unsharp pass rather than the pixel
+    count, so this takes the resolution step that is worth paying for and stops.
+  */
+  lights: [5120, 2560],
+  /* A greyscale silhouette. Only needs to define coastlines and give the lit
+     limb something to vary against. */
+  land: [3072, 1536],
+  /* Thin lines on black. Needs the resolution to stay crisp, but compresses
+     almost to nothing because the rest of the frame is empty. */
+  borders: [4096, 2048],
+}
+
+const SETS = {
+  day: [
+    /* 28 MB, 21600 by 10800. The 5400 version was tried first and is not enough
+       resolution once the globe is cropped this hard. */
+    ['NASA Visible Earth 21600, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x21600x10800.jpg'],
+    ['NASA Visible Earth 5400, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x5400x2700.jpg'],
+  ],
+  night: [
+    ['NASA Black Marble 2016 3km, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_3km.jpg'],
+    ['NASA Black Marble 2016 0.1deg, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_01deg.jpg'],
+  ],
+  clouds: [
+    /* 8192x4096 real cloud composite, 34 MB TIFF. The 2048 version below was
+       tried first and looked blocky once wrapped on the sphere. */
+    ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
+    ['solarsystemscope, CC BY 4.0', 'https://www.solarsystemscope.com/textures/download/8k_earth_clouds.jpg'],
+    ['NASA Blue Marble clouds 2k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg'],
+  ],
+  tour: [
+    /* Demo panorama for the facility tour section: a real machine hall
+       standing in for ours until the facility shoot. CC0. */
+    ['Poly Haven machine_shop_01, CC0', 'https://dl.polyhaven.org/file/ph-assets/HDRIs/extra/Tonemapped%20JPG/machine_shop_01.jpg'],
+  ],
+  bath: [
+    /*
+      A real depth grid, 21600x10800. Blue Marble's own ocean shading is a soft
+      gradient and read as a blurry mess once it was actually being used, where
+      this has trenches, ridges and shelves with hard structure.
+
+      Verified on download: Mariana Trench 45, abyssal Pacific 109, mid Atlantic
+      ridge 129, North Sea shelf 253, land 255. Low is deep.
+    */
+    ['NASA GEBCO 08 bathymetry, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73963/gebco_08_rev_bath_21600x10800.png'],
+  ],
+}
+
+const mb = (n) => `${(n / 1024 / 1024).toFixed(2)} MB`
+const kb = (n) => `${(n / 1024).toFixed(0)} kB`
+
+async function grab(sources, label) {
+  for (const [licence, url] of sources) {
+    const cached = resolve(cacheDir, createHash('sha1').update(url).digest('hex'))
+    if (existsSync(cached)) {
+      const buf = readFileSync(cached)
+      const meta = await sharp(buf).metadata()
+      console.log(`  ${label}: cached. ${meta.width}x${meta.height}, ${mb(buf.length)}`)
+      return { buf, licence, url, meta }
+    }
+    try {
+      process.stdout.write(`  ${label}: ${new URL(url).host} ... `)
+      const res = await fetch(url, { redirect: 'follow' })
+      if (!res.ok) {
+        console.log(`HTTP ${res.status}`)
+        continue
+      }
+      const buf = Buffer.from(await res.arrayBuffer())
+      const meta = await sharp(buf).metadata()
+      console.log(`ok. ${meta.width}x${meta.height}, ${mb(buf.length)}`)
+      writeFileSync(cached, buf)
+      return { buf, licence, url, meta }
+    } catch (err) {
+      console.log(`failed. ${err.message}`)
+    }
+  }
+  throw new Error(`No source reachable for ${label}`)
+}
+
+const used = []
+let total = 0
+
+async function write(name, buf, size, pipeline) {
+  const out = await pipeline(sharp(buf).resize(size[0], size[1], { fit: 'fill' })).toBuffer()
+  writeFileSync(resolve(outDir, name), out)
+  total += out.length
+  const meta = await sharp(out).metadata()
+  console.log(`  wrote ${name.padEnd(20)} ${meta.width}x${meta.height}  ${kb(out.length)}`)
+}
+
+const clamp = (v) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v))
+
+/*
+  Country outlines, rasterised at build time.
+
+  Drawn as an SVG in equirectangular projection and handed to sharp, which
+  rasterises it through librsvg. That avoids pulling a canvas implementation
+  into the toolchain for what is a few thousand line segments.
+
+  Coastlines and internal borders are drawn dim, Bangladesh brighter and
+  thicker, all into one greyscale channel. The shader reads that value directly
+  as an intensity, so the host country stands out without needing a second
+  texture or a second lookup.
+
+  d3-geo, topojson-client and world-atlas are devDependencies. None of them
+  reach the browser: what ships is the rasterised WebP.
+*/
+async function borderMask([w, h]) {
+  const topo = JSON.parse(
+    readFileSync(resolve(root, 'node_modules/world-atlas/countries-50m.json'), 'utf8'),
+  )
+  /* 50m rather than 110m. At 4096 wide the 110m outlines are visibly faceted. */
+  const projection = geoEquirectangular()
+    .translate([w / 2, h / 2])
+    .scale(w / (2 * Math.PI))
+  const path = geoPath(projection)
+
+  const coast = mesh(topo, topo.objects.countries, (a, b) => a === b)
+  const inland = mesh(topo, topo.objects.countries, (a, b) => a !== b)
+  const bd = feature(topo, topo.objects.countries).features.find(
+    (f) => f.properties.name === 'Bangladesh',
+  )
+  if (!bd) throw new Error('Bangladesh not found in world-atlas countries-50m')
+
+  /*
+    Sub-pixel stroke widths, deliberately.
+
+    At 4096 across 360 degrees one pixel is 0.088 degrees, which at the entry
+    crop lands at about 2.55 screen pixels. A 1px stroke therefore is not thin,
+    and the 2.3px Bangladesh outline was nearly six screen pixels of solid line.
+
+    Fractions below 1 let librsvg antialias instead, which does two useful
+    things at once: the line comes out around a screen pixel wide, and it is
+    automatically dimmer, because a 0.45px line spread over a whole pixel
+    arrives at roughly half the intensity. Peak value in the output is 180
+    rather than 255, so the mask is faint before the shader even touches it.
+
+      stroke 0.45 -> 1.15 screen px
+      stroke 0.40 -> 1.02 screen px
+      stroke 0.85 -> 2.17 screen px   Bangladesh, about double the rest
+  */
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+<rect width="${w}" height="${h}" fill="#000"/>
+<g fill="none" stroke-linejoin="round" stroke-linecap="round">
+<path d="${path(coast)}" stroke="#787878" stroke-width="0.45"/>
+<path d="${path(inland)}" stroke="#5a5a5a" stroke-width="0.4"/>
+<path d="${path(bd)}" stroke="#b4b4b4" stroke-width="0.85"/>
+</g>
+</svg>`
+
+  return () => sharp(Buffer.from(svg)).removeAlpha().greyscale()
+}
+
+/*
+  The land silhouette, as a single greyscale channel.
+
+  The planet's colour is generated in the shader, not sampled from an albedo
+  map, so nothing here needs to carry colour. All the surface texture needs to
+  say is where land is and roughly how bright it is, which is one channel and a
+  fraction of the bytes: 170 kB against 571 kB for the albedo it replaces.
+
+  Ocean is crushed to black using the same blue dominance test that drove the
+  old ocean flattening. On a lights first render the ocean is a flat shaded
+  gradient anyway, so there is nothing there to lose.
+*/
+async function landMask(daySrc, bathSrc, [w, h]) {
+  const base = await sharp(daySrc).resize(w, h, { fit: 'fill' }).removeAlpha().toBuffer()
+  const { data } = await sharp(base).raw().toBuffer({ resolveWithObject: true })
+  const depth = await sharp(bathSrc)
+    .resize(w, h, { fit: 'fill' })
+    .removeAlpha()
+    .greyscale()
+    .raw()
+    .toBuffer()
+
+  const n = w * h
+  const out = Buffer.alloc(n)
+
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 3]
+    const g = data[i * 3 + 1]
+    const b = data[i * 3 + 2]
+    const lum = r * 0.299 + g * 0.587 + b * 0.114
+    const ocean = Math.max(0, Math.min(1, (b - r - 6) / 24))
+
+    /*
+      One channel, two signals. Ocean depth uses the bottom half of the range
+      and land brightness the top.
+
+      Depth comes from the GEBCO grid, not from Blue Marble's own ocean
+      shading. Blue Marble's is a soft gradient that looked like a blur once it
+      was actually being rendered; GEBCO has real trenches, ridges and shelves.
+
+      Kept to one channel so the file stays greyscale, which is most of why it
+      is a fraction of an albedo map. The shader splits it back apart around the
+      midpoint, and the split is continuous across the coastline so there is no
+      seam.
+    */
+    const deep = 0.5 * (depth[i] / 255)
+    const high = 0.5 + 0.5 * Math.min(1, lum / 255)
+    out[i] = clamp((deep * ocean + high * (1 - ocean)) * 255)
+  }
+
+  return () => sharp(out, { raw: { width: w, height: h, channels: 1 } })
+}
+
+async function writeGraded(name, make, quality) {
+  const out = await make().webp({ quality, effort: 6 }).toBuffer()
+  writeFileSync(resolve(outDir, name), out)
+  total += out.length
+  const meta = await sharp(out).metadata()
+  console.log(`  wrote ${name.padEnd(20)} ${meta.width}x${meta.height}  ${kb(out.length)}`)
+}
+
+/*
+  Clouds stay a separate texture on their own shell. This was measured, not
+  assumed.
+
+  NASA publishes no cloud composited map worth using: the land_ocean_ice_cloud
+  records only exist at 2048 and the Black Marble has no cloud variant at all.
+  Baking one here from the two full resolution sources was tried and is the
+  wrong trade. Cloud detail is high frequency everywhere, including over ocean
+  that otherwise compresses to almost nothing, so the combined image resists
+  WebP badly:
+
+    baked, one 8192 texture      q44 3579 kB   q52 3983 kB   q66 4853 kB
+    separate                     day 8192 q68 1709 kB + clouds 3072 q64 856 kB
+
+  Separate is a megabyte smaller at a quality the baked version cannot reach at
+  any setting, and it keeps the shell's parallax at the limb. The shell is
+  parented to the surface group in the scene, so it behaves exactly as a baked
+  texture would: no motion of its own.
+*/
+console.log('City lights')
+const night = await grab(SETS.night, 'try')
+used.push(['lights.webp', night.licence, night.url])
+/*
+  Sharpened, not just downsampled.
+
+  City lights are the only surface detail on this planet, so they carry the
+  whole render and a soft one reads as a blur rather than as cities. Downsampling
+  a 13500 wide source is inherently softening, so the resample is followed by an
+  unsharp pass and a contrast lift that pulls the dim halo around each
+  conurbation down toward black while leaving the cores bright.
+
+  It also compresses better afterwards, because the crushed halo is flat.
+*/
+await write('lights.webp', night.buf, SIZES.lights, (p) =>
+  p
+    .removeAlpha()
+    .sharpen({ sigma: 0.7, m1: 0.6, m2: 2.4 })
+    /*
+      Crushed harder than looks reasonable. Black Marble carries a dim blue grey
+      wash over unlit land, not just the lights themselves, and on a planet
+      whose only surface data is this map that wash renders the whole night side
+      purple. The shader also thresholds it, but taking it out here means the
+      flattened areas compress instead of costing bytes.
+    */
+    .linear(1.45, -30)
+    .webp({ quality: 62, effort: 6 }),
+)
+
+console.log('Land silhouette and ocean depth')
+const day = await grab(SETS.day, 'try')
+const bath = await grab(SETS.bath, 'try')
+used.push(['land.webp', `${day.licence} + ${bath.licence}`, bath.url])
+await writeGraded('land.webp', await landMask(day.buf, bath.buf, SIZES.land), 60)
+
+console.log('Country outlines')
+used.push(['borders.webp', 'Natural Earth via world-atlas, public domain', 'countries-50m'])
+/* Quality 86, higher than anything else here. Lossy compression smears one
+   pixel lines, and smearing was half of why these read as blurry. */
+await writeGraded('borders.webp', await borderMask(SIZES.borders), 86)
+
+/*
+  Deep space background. A supplied plate, not a fetched one: the rendered star
+  shell was replaced by a CSS background on .hero-base, so this just optimises
+  the source PNG sitting in the repo root. Both formats, picked by image-set().
+*/
+console.log('Galaxy background')
+const galaxySrc = resolve(root, 'Galaxy BG.png')
+if (existsSync(galaxySrc)) {
+  const g = readFileSync(galaxySrc)
+  const webp = await sharp(g).webp({ quality: 86, effort: 6 }).toBuffer()
+  const avif = await sharp(g).avif({ quality: 58, effort: 6 }).toBuffer()
+  writeFileSync(resolve(outDir, 'galaxy.webp'), webp)
+  writeFileSync(resolve(outDir, 'galaxy.avif'), avif)
+  total += webp.length + avif.length
+  console.log(`  galaxy.webp ${kb(webp.length)}, galaxy.avif ${kb(avif.length)}`)
+  used.push(['galaxy.webp/avif', 'supplied artwork', 'Galaxy BG.png'])
+} else {
+  console.log('  Galaxy BG.png not found in the repo root, skipped')
+}
+
+console.log('Tour panorama')
+const tour = await grab(SETS.tour, 'try')
+used.push(['tour.webp', tour.licence, tour.url])
+await write('tour.webp', tour.buf, [4096, 2048], (p) => p.webp({ quality: 68, effort: 6 }))
+
+console.log(`\nTotal texture payload: ${kb(total)}\n`)
+console.log('Attribution, for docs/09-asset-manifest.md:')
+for (const [file, licence, url] of used) console.log(`  ${file.padEnd(20)} ${licence}\n    ${url}`)

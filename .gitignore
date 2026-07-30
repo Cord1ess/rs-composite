@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+build/
+.env*
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+.texture-cache/
+
+# Scraped copy of the old site, source material only
+RS_web_scrap/

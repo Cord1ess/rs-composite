@@ -1,0 +1,793 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  PERFORMANCE CONTRACT
+  --------------------
+  backdrop-filter is the most expensive thing on this site. It forces the
+  browser to re-rasterise everything behind the element, and it does that again
+  on every scroll frame, every hover and every video frame.
+
+  So there is a hard budget: at most TWO backdrop-filter surfaces exist on the
+  whole page, both inside the hero, neither of them fixed.
+
+  Everywhere else, .glass-surface gives the same look with a flat translucent
+  background. Over a near black page the difference is invisible and the cost
+  is zero.
+
+  The video carries no CSS filter. A full viewport filter repaints at video
+  frame rate and was the single largest source of jank.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 100%;
+    /* Brand green, the globe's atmosphere colour. RGB triplet for Tailwind's
+       alpha composition: rgb(var(--accent) / 0.5) and so on. */
+    --accent: 84 227 146;
+    --card: 0 0% 8%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 62%;
+    --border: 0 0% 20%;
+    --ring: 0 0% 80%;
+
+    --radius: 1rem;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --header-h: 4.5rem;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--header-h);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-display), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 500;
+  }
+
+  ::selection {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /*
+    The scrollbar. Thin, no buttons, a rounded thumb floating on an invisible
+    track, in the same mint grey the interface uses for quiet text. The
+    transparent border trick insets the thumb from the window edge so it reads
+    as a floating bar rather than a filled gutter.
+
+    Two systems on purpose: scrollbar-width and scrollbar-color are the
+    standard and cover Firefox; the -webkit rules cover Chrome, Edge and
+    Safari, where they take precedence automatically.
+  */
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(178, 216, 199, 0.22) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(178, 216, 199, 0.22);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(178, 216, 199, 0.38);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  /* No arrows, no corner square. */
+  ::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 0 4px rgba(255, 255, 255, 0.8);
+    border-radius: 6px;
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------- the glass ring */
+
+  /*
+    Shared by every tier. The gradient ring is the border, which is why no
+    element in this project carries a Tailwind border class.
+  */
+  .ring-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.15) 20%,
+      transparent 40%,
+      transparent 60%,
+      rgba(255, 255, 255, 0.15) 80%,
+      rgba(255, 255, 255, 0.45) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Flat glass. No blur. Used for everything below the hero. */
+  .glass-surface {
+    position: relative;
+    background: rgba(255, 255, 255, 0.035);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+  }
+  .glass-surface::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.4) 0%,
+      rgba(255, 255, 255, 0.12) 20%,
+      transparent 40%,
+      transparent 60%,
+      rgba(255, 255, 255, 0.12) 80%,
+      rgba(255, 255, 255, 0.4) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Blurred glass. BUDGET: hero only. */
+  .liquid-glass {
+    position: relative;
+    background: rgba(255, 255, 255, 0.03);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+  }
+  .liquid-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.15) 20%,
+      transparent 40%,
+      transparent 60%,
+      rgba(255, 255, 255, 0.15) 80%,
+      rgba(255, 255, 255, 0.45) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Heavy blur. BUDGET: the primary action and the menu overlay. */
+  .liquid-glass-strong {
+    position: relative;
+    background: rgba(255, 255, 255, 0.05);
+    -webkit-backdrop-filter: blur(28px);
+    backdrop-filter: blur(28px);
+    box-shadow:
+      4px 4px 4px rgba(0, 0, 0, 0.05),
+      inset 0 1px 1px rgba(255, 255, 255, 0.15);
+    overflow: hidden;
+  }
+  .liquid-glass-strong::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.2) 20%,
+      transparent 40%,
+      transparent 60%,
+      rgba(255, 255, 255, 0.2) 80%,
+      rgba(255, 255, 255, 0.5) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* ---------------------------------------------------------- the hero */
+
+  /*
+    The deep space plate. A real photographic background, not a rendered one:
+    the star shell that used to live in the three.js scene is gone, so the
+    canvas clears to transparent and this layer shows through. The browser
+    composites a fixed background once; the GPU never touches it again.
+
+    The image is the supplied galaxy plate, 61 kB as WebP and 40 kB as AVIF
+    against the 145 kB star texture it replaces.
+  */
+  .hero-base {
+    background-color: hsl(var(--background));
+    background-image: image-set(
+      url('/textures/galaxy.avif') type('image/avif'),
+      url('/textures/galaxy.webp') type('image/webp')
+    );
+    background-size: cover;
+    background-position: center;
+    /*
+      The clean scroll handoff. The plate holds through the cinematic view,
+      then dissolves to the page background as the globe becomes a ball, so by
+      the time the hero unpins there is nothing left to pop. Fully gone at
+      roughly hp 0.83.
+    */
+    opacity: clamp(0, calc(1 - (var(--hp, 0) - 0.45) * 2.6), 1);
+    will-change: opacity;
+  }
+
+  /* The dark shadow rising from the bottom. Grounds the frame and hands the
+     lower edge of the hero to the page background underneath. */
+  .hero-base::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      transparent 52%,
+      rgba(5, 8, 7, 0.45) 76%,
+      rgba(5, 8, 7, 0.95) 100%
+    );
+  }
+
+  /*
+    Sits over the star field and under the content.
+
+    Heavier on the left than it was, because the background is now a real deep
+    space plate rather than a flat field and the headline has to hold against
+    it. Fully clear by two thirds across so the planet and its glow keep their
+    contrast on the right.
+  */
+  .hero-scrim {
+    background:
+      linear-gradient(
+        180deg,
+        rgba(0, 0, 0, 0.55) 0%,
+        rgba(0, 0, 0, 0.1) 26%,
+        rgba(0, 0, 0, 0.1) 64%,
+        rgba(0, 0, 0, 0.7) 100%
+      ),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.86) 0%, rgba(0, 0, 0, 0.42) 34%, transparent 66%);
+  }
+
+  /* Long page. Skip layout and paint for sections that are off screen. */
+  .defer-paint {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 720px;
+  }
+
+  /*
+    The hero scroll sequence.
+
+    --hp is the runway progress, 0 to 1, written by HeroStage on a passive rAF
+    guarded scroll listener. Everything below reads it, so the whole sequence is
+    driven by one number and costs no React renders.
+  */
+  .hero-runway {
+    height: 260vh;
+  }
+
+  /*
+    Every rule in this block changes opacity or transform on every scroll
+    frame, driven by --hp. will-change keeps each one on its own compositor
+    layer, so a scroll frame is a recomposite, never a repaint of a full
+    screen gradient or a text block. Five small layers is well inside any
+    GPU's budget; repainting the scrim's gradient at 4K sixty times a second
+    is not.
+  */
+
+  /* Headline, actions and pills. Gone by a third of the way through. */
+  .hero-copy {
+    opacity: clamp(0, calc(1 - var(--hp, 0) * 3.2), 1);
+    transform: translate3d(0, calc(var(--hp, 0) * -60px), 0);
+    will-change: opacity, transform;
+  }
+
+  /* The caption that replaces the headline once the globe has pulled back. */
+  .hero-network {
+    opacity: clamp(0, calc((var(--hp, 0) - 0.62) * 4.5), 1);
+    transform: translate3d(0, calc((1 - clamp(0, (var(--hp, 0) - 0.62) * 4.5, 1)) * 24px), 0);
+    will-change: opacity, transform;
+  }
+
+  /* Leader lines and market labels, last to arrive. */
+  .globe-leaders {
+    opacity: clamp(0, calc((var(--hp, 0) - 0.74) * 6), 1);
+    will-change: opacity;
+  }
+
+  /* The scrim lifts as the globe shrinks, since the copy it protected is gone. */
+  .hero-scrim {
+    opacity: clamp(0.25, calc(1 - var(--hp, 0) * 1.1), 1);
+    will-change: opacity;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .liquid-glass {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .liquid-glass-strong {
+    background: rgba(22, 22, 22, 0.62);
+  }
+}
+
+/* ----------------------------------------------------- card border glow */
+
+/*
+  The border glow on information cards, after reactbits' BorderGlow, rebuilt
+  for this site: accent green mesh instead of the purple set, one delegated
+  pointer listener feeding CSS variables instead of a React component with a
+  listener per card, and layered onto .glass-surface without touching it,
+  since that class already owns ::before and clips its overflow.
+
+  Three responses to the cursor, all driven by --gx, --gy and --edge:
+
+    ::after        the border segment: an accent mesh gradient masked to a
+                   1.4px ring, then intersected with a radial mask around the
+                   cursor, so only the stretch of border near the pointer
+                   lights up
+    background     a faint interior bleed at the cursor, standing in for the
+                   original's soft-light fill, since overflow hidden forbids
+                   an outer cone
+    box-shadow     an ambient accent bloom around the whole card, rising with
+                   edge proximity
+
+  --edge is a registered property so releasing a card fades out through a
+  transition instead of snapping.
+*/
+@property --edge {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+.card-glow {
+  transition: --edge 0.45s var(--ease);
+  background-image: radial-gradient(
+    170px 170px at var(--gx, 50%) var(--gy, 50%),
+    rgb(var(--accent) / calc(var(--edge, 0) * 0.05)),
+    transparent 72%
+  );
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    0 0 34px -6px rgb(var(--accent) / calc(var(--edge, 0) * 0.3));
+}
+
+.card-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  pointer-events: none;
+  background:
+    radial-gradient(at 80% 55%, rgb(var(--accent)) 0px, transparent 55%),
+    radial-gradient(at 10% 8%, #a2f4c8 0px, transparent 55%),
+    radial-gradient(at 40% 92%, #17a468 0px, transparent 55%),
+    linear-gradient(#2fd184 0% 100%);
+  mask-image:
+    radial-gradient(190px 190px at var(--gx, 50%) var(--gy, 50%), #000 25%, transparent 100%),
+    linear-gradient(#000 0 0),
+    linear-gradient(#000 0 0);
+  mask-clip: border-box, content-box, border-box;
+  mask-composite: intersect, exclude, add;
+  -webkit-mask-image:
+    radial-gradient(190px 190px at var(--gx, 50%) var(--gy, 50%), #000 25%, transparent 100%),
+    linear-gradient(#000 0 0),
+    linear-gradient(#000 0 0);
+  -webkit-mask-clip: border-box, content-box, border-box;
+  -webkit-mask-composite: source-in, xor, source-over;
+  opacity: var(--edge, 0);
+}
+
+/* ----------------------------------------------------------------- tour */
+
+/* Hotspot pulse. Transform and opacity only, paused under reduced motion. */
+@keyframes tour-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+.tour-dot-ring {
+  animation: tour-pulse 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-dot-ring {
+    animation: none;
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+}
+
+/* ---------------------------------------------------------------- icons */
+
+.icon {
+  display: block;
+  overflow: visible;
+}
+
+.icon [data-part='motion'] {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+}
+
+.icon[data-motion] [data-part='motion'] {
+  animation-duration: 1.6s;
+  animation-timing-function: var(--ease);
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+  animation-play-state: paused;
+}
+
+.icon[data-motion='spin'] [data-part='motion'] {
+  animation-name: icon-spin;
+  animation-timing-function: linear;
+  animation-duration: 3.2s;
+}
+.icon[data-motion='bob'] [data-part='motion'] {
+  animation-name: icon-bob;
+  animation-duration: 1s;
+  animation-iteration-count: 3;
+}
+.icon[data-motion='slide-x'] [data-part='motion'] {
+  animation-name: icon-slide-x;
+}
+.icon[data-motion='slide-y'] [data-part='motion'] {
+  animation-name: icon-slide-y;
+}
+.icon[data-motion='wave'] [data-part='motion'] {
+  animation-name: icon-wave;
+  animation-duration: 1.8s;
+}
+.icon[data-motion='rise'] [data-part='motion'] {
+  animation-name: icon-rise;
+  animation-duration: 1.8s;
+}
+.icon[data-motion='fill'] [data-part='motion'] {
+  animation-name: icon-fill;
+}
+.icon[data-motion='fold'] [data-part='motion'] {
+  animation-name: icon-fold;
+  transform-origin: 12px 9px;
+}
+.icon[data-motion='pulse'] [data-part='motion'] {
+  animation-name: icon-pulse;
+}
+.icon[data-motion='step'] [data-part='motion'] {
+  animation-name: icon-step;
+  animation-duration: 1.1s;
+  animation-iteration-count: 2;
+  transform-origin: 7px 12px;
+}
+.icon[data-motion='drop'] [data-part='motion'] {
+  animation-name: icon-drop;
+  animation-duration: 1.3s;
+  animation-iteration-count: 2;
+}
+.icon[data-motion='nudge-x'] [data-part='motion'] {
+  animation-name: icon-nudge-x;
+  animation-duration: 0.5s;
+}
+
+.group:hover .icon [data-part='motion'],
+.group:focus-within .icon [data-part='motion'],
+.icon[data-animate='loop'] [data-part='motion'] {
+  animation-play-state: running;
+}
+
+.icon[data-animate='loop'] [data-part='motion'] {
+  animation-iteration-count: infinite;
+}
+
+.icon [data-part='trace'] {
+  stroke-dasharray: 56;
+  stroke-dashoffset: 0;
+}
+
+.group:hover .icon [data-part='trace'],
+.group:focus-within .icon [data-part='trace'] {
+  animation: icon-draw 0.9s var(--ease) 1;
+}
+
+@keyframes icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes icon-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(2.5px);
+  }
+}
+@keyframes icon-slide-x {
+  0% {
+    transform: translateX(-4px);
+  }
+  100% {
+    transform: translateX(4px);
+  }
+}
+@keyframes icon-slide-y {
+  0% {
+    transform: translateY(-3px);
+  }
+  100% {
+    transform: translateY(3px);
+  }
+}
+@keyframes icon-wave {
+  0%,
+  100% {
+    transform: translateX(0) translateY(0);
+  }
+  50% {
+    transform: translateX(1.5px) translateY(-1px);
+  }
+}
+@keyframes icon-rise {
+  0% {
+    transform: translateY(2px);
+    opacity: 0.35;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+@keyframes icon-fill {
+  0% {
+    transform: translateY(4px);
+  }
+  100% {
+    transform: translateY(-1px);
+  }
+}
+@keyframes icon-fold {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes icon-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.55;
+  }
+}
+@keyframes icon-step {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-11deg);
+  }
+}
+@keyframes icon-drop {
+  0% {
+    transform: translateY(-3px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(4px);
+    opacity: 0;
+  }
+}
+@keyframes icon-nudge-x {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(2.5px);
+  }
+}
+@keyframes icon-draw {
+  from {
+    stroke-dashoffset: 56;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* -------------------------------------------------------- entrance */
+
+[data-enter] {
+  opacity: 0;
+  transform: translate3d(0, 12px, 0);
+  animation: enter-rise 0.5s var(--ease) forwards;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+@keyframes enter-rise {
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* ---------------------------------------------------------- reveal */
+
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 20px, 0);
+  transition:
+    opacity 0.55s var(--ease),
+    transform 0.55s var(--ease);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal='shown'] {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+/*
+  The globe's own animations live inside public/globe.svg, including its
+  reduced-motion handling. Nothing about it is styled from here.
+*/
+
+/* ------------------------------------------------------- scroll cue */
+
+.scroll-cue {
+  animation: cue-bob 2.4s var(--ease) infinite;
+}
+
+@keyframes cue-bob {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate3d(0, 6px, 0);
+    opacity: 0.9;
+  }
+}
+
+/* --------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .icon [data-part='motion'],
+  .icon [data-part='trace'],
+  .scroll-cue,
+  [data-enter] {
+    animation: none !important;
+  }
+
+  [data-enter] {
+    opacity: 1;
+    transform: none;
+  }
+
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  /*
+    No scroll sequence. The runway collapses to one screen and HeroStage pins
+    the progress at the settled end, so the globe simply arrives in its final
+    orientation with the labels already up.
+  */
+  .hero-runway {
+    height: auto;
+  }
+
+  .hero-copy,
+  .hero-rail {
+    display: none;
+  }
+
+  .hero-network,
+  .globe-leaders {
+    opacity: 1;
+    transform: none;
+  }
+}
