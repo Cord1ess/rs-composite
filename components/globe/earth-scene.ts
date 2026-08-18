@@ -561,6 +561,20 @@ export class EarthScene {
       )
     }
 
+    /*
+      Context loss recovery. A driver timeout, a GPU switch on a dual GPU
+      laptop or the OS reclaiming memory kills the WebGL context; three
+      prevents default and reinitialises on restore, and every texture here is
+      a DataTexture whose CPU-side bytes are retained, so re-upload is
+      automatic. The one gap is ours: the idle skip would sit on a restored
+      but never redrawn context forever. Waking the loop and invalidating the
+      last drawn state closes it.
+    */
+    ;(opts.canvas as unknown as EventTarget).addEventListener(
+      'webglcontextrestored',
+      this.onContextRestored,
+    )
+
     this.camera = new PerspectiveCamera(CAM_FOV, 1, 0.1, 200)
     this.camera.position.set(0, 0, CAM_Z)
 
@@ -1151,6 +1165,14 @@ export class EarthScene {
     if (!this.opts.motion) this.arcProgress = 1
   }
 
+  private onContextRestored = () => {
+    this.needsDraw = true
+    this.lastDrawnSpin = Infinity
+    this.lastDrawnProgress = -1
+    this.settled = false
+    this.start()
+  }
+
   /* ----------------------------------------------------------- pointer */
 
   /*
@@ -1372,6 +1394,10 @@ export class EarthScene {
   dispose() {
     this.disposed = true
     this.stop()
+    ;(this.opts.canvas as unknown as EventTarget).removeEventListener(
+      'webglcontextrestored',
+      this.onContextRestored,
+    )
 
     this.scene.traverse((obj) => {
       const mesh = obj as Mesh
