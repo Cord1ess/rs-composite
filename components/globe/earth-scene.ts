@@ -537,7 +537,14 @@ export class EarthScene {
     this.renderer = new WebGLRenderer({
       canvas: opts.canvas,
       alpha: true,
-      antialias: true,
+      /*
+        MSAA only where the buffer is not already supersampled. On a retina
+        display the calm buffer runs at native 2x, and multisampling on top of
+        that pays twice for one smoothness: the scene's only hard geometric
+        edge is the limb, and the halo ring sits directly on it. At 1x there
+        is no supersampling to lean on, so MSAA stays.
+      */
+      antialias: opts.dpr < 2,
       /* Nothing here uses the stencil buffer; not allocating it saves memory
          bandwidth on every raster op. */
       stencil: false,
