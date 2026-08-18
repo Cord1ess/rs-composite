@@ -496,6 +496,17 @@ export class EarthScene {
   private prevP = 0
 
   /*
+    The closed loop. The motion heuristic above is open loop: it knows what
+    is moving, not whether the device is keeping up. This measures achieved
+    frame time as an exponential average and steps the calm resolution down,
+    2 to 1.5 to 1.25, when a full second sustains over ~19 ms at the high
+    tier. Weak GPUs converge to what they can actually hold; strong ones
+    never trigger it. Sticky for the session: thrash serves nobody.
+  */
+  private frameEma = 16
+  private slowFor = 0
+
+  /*
     Idle skip. Once the showcase has settled nothing on screen changes, but the
     loop kept re-rendering identical frames at the display rate. Now a frame is
     only rendered when the picture would differ: the loop itself keeps running,
@@ -1323,6 +1334,31 @@ export class EarthScene {
     this.world.rotation.y = rendered
     this.applyVantage(rendered)
     if (this.earthMat) this.earthMat.uniforms.uDark.value = this.settle
+
+    /*
+      Frame time feedback: see the field block. Sampled only while running at
+      the high tier, since the low tier during motion is supposed to be the
+      cheap one. dt arrives already clamped, so a background tab's resumed
+      first frame cannot poison the average.
+    */
+    if (this.dprCurrent === this.dprHigh && this.dprHigh > 1.25) {
+      this.frameEma += (dt * 1000 - this.frameEma) * 0.05
+      if (this.frameEma > 19) {
+        this.slowFor += dt
+        if (this.slowFor > 1) {
+          this.dprHigh = Math.max(1.25, this.dprHigh - 0.375)
+          this.frameEma = 16
+          this.slowFor = 0
+          this.lastDprSwitch = time
+          this.dprCurrent = this.dprHigh
+          this.renderer.setPixelRatio(this.dprHigh)
+          this.renderer.setSize(this.size.x, this.size.y, false)
+          this.needsDraw = true
+        }
+      } else if (this.slowFor > 0) {
+        this.slowFor = 0
+      }
+    }
 
     /* Dynamic resolution: see the field block. Angular speed of the rendered
        globe or a fast scroll both count as motion. */
