@@ -424,7 +424,10 @@ const SUN = new Vector3(0.3, 0.72, -0.3).normalize()
   saturated than land, which is the right way round at a grazing sun angle.
 */
 const OCEAN = new Vector3(0.02, 0.1, 0.26)
-const LAND = new Vector3(0.05, 0.068, 0.1)
+/* Same blue family as the ocean, darker and more muted, never grey: the
+   first blue pass used a blue to green ratio of 1.5 against the ocean's 2.6
+   and the continents read as slate. */
+const LAND = new Vector3(0.03, 0.056, 0.125)
 /** Specular off water where the sun clears the limb. Cool white. */
 const GLINT = new Vector3(0.72, 0.86, 1.0)
 /** City lights. Warm sodium gold, which is now also the brand accent, so the
