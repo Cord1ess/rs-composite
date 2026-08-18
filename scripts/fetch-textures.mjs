@@ -70,6 +70,9 @@ const SIZES = {
   /* Thin lines on black. Needs the resolution to stay crisp, but compresses
      almost to nothing because the rest of the frame is empty. */
   borders: [4096, 2048],
+  /* One greyscale channel at low opacity in the shader; 2048 is plenty for
+     a translucent layer. */
+  clouds: [2048, 1024],
 }
 
 const SETS = {
@@ -384,6 +387,13 @@ if (existsSync(galaxySrc)) {
 } else {
   console.log('  Galaxy BG.png not found in the repo root, skipped')
 }
+
+console.log('Cloud layer')
+const cloud = await grab(SETS.clouds, 'try')
+used.push(['clouds.webp', cloud.licence, cloud.url])
+await write('clouds.webp', cloud.buf, SIZES.clouds, (p) =>
+  p.removeAlpha().greyscale().webp({ quality: 55, effort: 6 }),
+)
 
 console.log('Tour panorama')
 const tour = await grab(SETS.tour, 'try')

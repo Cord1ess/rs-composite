@@ -469,6 +469,15 @@ const ATMO = new Color(0x5fb0ff)
 const TOUR_SPIN = 0.042
 const RESUME_AFTER = 3.5
 
+/*
+  The cloud layer, the audit's one taste call. A single greyscale tap at low
+  opacity in the same shader: no second sphere, no sorting. Clouds catch the
+  sun on the day side, ghost faintly at night and drift slowly against the
+  surface while the hero loop is already rendering. Flip this flag to render
+  a bare planet again; the texture simply is not fetched.
+*/
+const CLOUDS = true
+
 function toVector(lon: number, lat: number, radius: number): Vector3 {
   const phi = MathUtils.degToRad(90 - lat)
   const theta = MathUtils.degToRad(lon + 180)
@@ -831,10 +840,12 @@ export class EarthScene {
 
       Weights are rough file size shares, so the loading bar moves honestly.
     */
-    const parts = { lights: 0, land: 0, borders: 0 }
+    const parts = { lights: 0, land: 0, borders: 0, clouds: CLOUDS ? 0 : 1 }
     const push = () =>
-      this.opts.onLoad?.(parts.lights * 0.5 + parts.land * 0.2 + parts.borders * 0.3)
-    const [lightsBm, landBm, borderBm] = await Promise.all([
+      this.opts.onLoad?.(
+        parts.lights * 0.4 + parts.land * 0.25 + parts.borders * 0.15 + parts.clouds * 0.2,
+      )
+    const [lightsBm, landBm, borderBm, cloudBm] = await Promise.all([
       fetchBitmap('/textures/lights.webp', (f) => {
         parts.lights = f
         push()
@@ -847,6 +858,12 @@ export class EarthScene {
         parts.borders = f
         push()
       }),
+      CLOUDS
+        ? fetchBitmap('/textures/clouds.webp', (f) => {
+            parts.clouds = f
+            push()
+          })
+        : Promise.resolve(null),
     ])
     if (this.disposed) return
 
@@ -857,6 +874,11 @@ export class EarthScene {
     const lightsMap = extractChannel(lightsBm, 'max')
     const landMap = extractChannel(landBm, 'r')
     const borderMap = extractChannel(borderBm, 'r')
+    const cloudMap = cloudBm ? extractChannel(cloudBm, 'r') : null
+    if (cloudMap) {
+      cloudMap.wrapS = RepeatWrapping
+      cloudMap.anisotropy = 4
+    }
 
     const maxAniso = this.renderer.capabilities.getMaxAnisotropy()
     /*
@@ -893,6 +915,9 @@ export class EarthScene {
           */
           uDark: { value: 0 },
           uNoise: { value: makeNoiseTexture() },
+          uClouds: { value: cloudMap ?? makeNoiseTexture() },
+          uCloudAmt: { value: cloudMap ? 1 : 0 },
+          uCloudShift: { value: 0 },
         },
         vertexShader: `
           varying vec2 vUv;
@@ -918,6 +943,9 @@ export class EarthScene {
           uniform vec3 uCity;
           uniform float uDark;
           uniform sampler2D uNoise;
+          uniform sampler2D uClouds;
+          uniform float uCloudAmt;
+          uniform float uCloudShift;
           uniform vec3 uShallow;
           uniform vec2 uLandTexel;
           varying vec2 vUv;
@@ -1175,6 +1203,16 @@ export class EarthScene {
             vec3 rimCol = mix(uAtmo, vec3(1.0), 0.35 * smoothstep(0.1, 0.6, sunDot));
             color += rimCol * (rim + haze) * sunSide;
 
+            /*
+              Clouds, one tap at low opacity. Lit by the sun on the day side,
+              a ghost at night, covering city lights beneath them the way
+              weather actually does. Drift comes through uCloudShift, driven
+              only while the hero loop is rendering anyway.
+            */
+            float cl = texture2D(uClouds, vec2(vUv.x + uCloudShift, vUv.y)).r;
+            vec3 cloudCol = vec3(0.72, 0.82, 0.96) * (0.10 + 1.1 * pow(clamp(sunDot, 0.0, 1.0), 1.1));
+            color = mix(color, cloudCol, cl * uCloudAmt * (0.07 + 0.38 * daylight));
+
             gl_FragColor = vec4(color, 1.0);
             #include <colorspace_fragment>
           }
@@ -1408,7 +1446,13 @@ export class EarthScene {
     const rendered = this.spin + swing * this.settle + this.dragOff * this.settle
     this.world.rotation.y = rendered
     this.applyVantage(rendered)
-    if (this.earthMat) this.earthMat.uniforms.uDark.value = this.settle
+    if (this.earthMat) {
+      this.earthMat.uniforms.uDark.value = this.settle
+      /* Cloud drift, only while the hero is already rendering frames. */
+      if (this.opts.motion && this.settle < 0.999) {
+        this.earthMat.uniforms.uCloudShift.value += dt * 0.00055
+      }
+    }
 
     /*
       Frame time feedback: see the field block. Sampled only while running at
