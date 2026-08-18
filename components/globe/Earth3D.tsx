@@ -6,6 +6,7 @@ import { places } from '@/content/globe'
 import { heroProgress } from '@/lib/scroll-progress'
 import { heroEntranceGate, markHeroReady, reportHeroLoad } from '@/lib/hero-loader'
 import type { MarkerFrame } from './earth-scene'
+import type { FromWorker, ToWorker } from './protocol'
 
 /*
   Only reached through a dynamic import behind the capability gate, so three.js
@@ -203,10 +204,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
       const box = holder.__earthWorker
       const worker = box.worker
       worker.onmessage = (event: MessageEvent) => {
-        const msg = event.data as
-          | { type: 'markers'; frames: MarkerFrame[] }
-          | { type: 'load'; value: number }
-          | { type: 'ready' }
+        const msg = event.data as FromWorker
         if (msg.type === 'markers') applyMarkers(msg.frames)
         else if (msg.type === 'load') reportHeroLoad(msg.value)
         else onSceneReady()

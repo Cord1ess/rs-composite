@@ -17,32 +17,15 @@
  *   out  markers   screen positions for the DOM markers, each drawn frame
  */
 
-import { EarthScene, type ScenePlace } from './earth-scene'
-
-type InMessage =
-  | {
-      type: 'init'
-      canvas: OffscreenCanvas
-      places: ScenePlace[]
-      originId: string
-      motion: boolean
-      dpr: number
-      width: number
-      height: number
-      progress: number
-    }
-  | { type: 'progress'; value: number }
-  | { type: 'size'; width: number; height: number }
-  | { type: 'pointer'; phase: 'down' | 'move' | 'up'; x: number }
-  | { type: 'run'; running: boolean }
-  | { type: 'dispose' }
+import { EarthScene } from './earth-scene'
+import type { ToWorker } from './protocol'
 
 /* Window's postMessage signature demands a targetOrigin; the worker scope's
    does not. One cast at the boundary keeps the rest typed. */
 const ctx = self as unknown as {
   postMessage: (message: unknown) => void
   close: () => void
-  onmessage: ((event: MessageEvent<InMessage>) => void) | null
+  onmessage: ((event: MessageEvent<ToWorker>) => void) | null
 }
 
 let scene: EarthScene | null = null
