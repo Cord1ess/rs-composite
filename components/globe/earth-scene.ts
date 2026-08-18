@@ -995,9 +995,19 @@ export class EarthScene {
               planet dark. This brings the lit top right up to roughly half
               brightness and lets the bottom fall to near black.
             */
+            /*
+              Colour temperature, kept an order of magnitude below the
+              rejected dust ring. The shadow's ambient light is skylight, so
+              it cools; the last lit degrees before the terminator warm by a
+              few percent, the way low sun does. Both are tints on existing
+              terms, not added bands, so neither can read as a ring.
+            */
+            float duskBand = smoothstep(0.30, 0.02, sunDot) * smoothstep(-0.12, 0.02, sunDot);
+            vec3 sunTint = mix(vec3(1.0), vec3(1.07, 0.98, 0.90), duskBand);
             /* The dark floor deepens with uDark: the settled section view sat
                too well lit in shadow at the hero's ambient level. */
-            vec3 lit = base * (mix(0.035, 0.016, uDark) + 7.0 * pow(clamp(sunDot, 0.0, 1.0), 1.25));
+            vec3 lit = base * (mix(0.035, 0.016, uDark) * vec3(0.85, 0.92, 1.12)
+                     + 7.0 * pow(clamp(sunDot, 0.0, 1.0), 1.25) * sunTint);
 
             /*
               The night hemisphere was near flat black, which amputates the
