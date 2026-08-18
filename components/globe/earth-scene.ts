@@ -525,7 +525,12 @@ export class EarthScene {
 
   constructor(opts: EarthOptions) {
     this.opts = opts
-    this.dprHigh = Math.min(opts.dpr, 1.5)
+    /*
+      Native resolution while calm, capped at 2. The dynamic resolution drops
+      to 1 during motion and the idle skip renders a calm frame exactly once,
+      so full crispness is paid for once per view, not per frame.
+    */
+    this.dprHigh = Math.min(opts.dpr, 2)
     this.dprLow = Math.min(opts.dpr, 1)
     this.dprCurrent = this.dprHigh
 
@@ -807,6 +812,9 @@ export class EarthScene {
           uAtmo: { value: new Vector3(ATMO.r, ATMO.g, ATMO.b) },
           uGlint: { value: GLINT.clone() },
           uCity: { value: CITY.clone() },
+          /* Bright shallow water, the top of the depth ramp. */
+          uShallow: { value: new Vector3(0.05, 0.18, 0.34) },
+          uLandTexel: { value: new Vector2(1 / 5120, 1 / 2560) },
           /*
             0 in the hero, 1 once settled into the section under it, riding the
             scroll settle. The cinematic entry wants a readable night side; the
@@ -840,9 +848,46 @@ export class EarthScene {
           uniform vec3 uCity;
           uniform float uDark;
           uniform sampler2D uNoise;
+          uniform vec3 uShallow;
+          uniform vec2 uLandTexel;
           varying vec2 vUv;
           varying vec3 vWorldNormal;
           varying vec3 vWorldPos;
+
+          /*
+            Bicubic sampling for the land channel only. Bilinear magnification
+            is what made the coastline mushy at the entry crop: a B spline
+            cubic reconstructs a smooth curve through the same texels, four
+            bilinear fetches doing the work of sixteen taps. No data changed,
+            no alignment risk, just better reconstruction.
+          */
+          vec4 cubicWeights(float t) {
+            vec4 e = vec4(1.0, 2.0, 3.0, 4.0) - t;
+            vec4 e3 = e * e * e;
+            float wa = e3.x;
+            float wb = e3.y - 4.0 * e3.x;
+            float wc = e3.z - 4.0 * e3.y + 6.0 * e3.x;
+            return vec4(wa, wb, wc, 6.0 - wa - wb - wc) * (1.0 / 6.0);
+          }
+
+          float landBicubic(vec2 uv) {
+            vec2 tsz = 1.0 / uLandTexel;
+            vec2 crd = uv * tsz - 0.5;
+            vec2 fxy = fract(crd);
+            crd -= fxy;
+            vec4 wx = cubicWeights(fxy.x);
+            vec4 wy = cubicWeights(fxy.y);
+            vec4 corner = crd.xxyy + vec2(-0.5, 1.5).xyxy;
+            vec4 sums = vec4(wx.xz + wx.yw, wy.xz + wy.yw);
+            vec4 off = (corner + vec4(wx.yw, wy.yw) / sums) * uLandTexel.xxyy;
+            float t00 = texture2D(uLand, off.xz).r;
+            float t10 = texture2D(uLand, off.yz).r;
+            float t01 = texture2D(uLand, off.xw).r;
+            float t11 = texture2D(uLand, off.yw).r;
+            float fx = sums.x / (sums.x + sums.y);
+            float fy = sums.z / (sums.z + sums.w);
+            return mix(mix(t11, t01, fx), mix(t10, t00, fx), fy);
+          }
 
           void main() {
             vec3 n = normalize(vWorldNormal);
@@ -857,7 +902,7 @@ export class EarthScene {
               the range and land brightness the top, split back apart here. The
               split is continuous across the coastline, so there is no seam.
             */
-            float surf = texture2D(uLand, vUv).r;
+            float surf = landBicubic(vUv);
             float land = clamp((surf - 0.5) * 2.0, 0.0, 1.0);
             float shelf = clamp(surf * 2.0, 0.0, 1.0);
             float lights = texture2D(uLights, vUv).r;
@@ -889,7 +934,14 @@ export class EarthScene {
             */
             float shore = smoothstep(0.30, 0.485, surf) * (1.0 - land);
 
-            vec3 water = uOcean * (0.62 + 0.85 * shelf) * (0.92 + 0.16 * wave);
+            /*
+              The depth story. shelf is the contrast curved GEBCO depth, near
+              one on the continental shelf and low over the abyss, so the water
+              ramps from bright shallow turquoise hugging every coast down into
+              deep open blue. The curve lives in the texture bake; the ramp
+              exponent here shapes how quickly the shallows fall away.
+            */
+            vec3 water = mix(uOcean * 0.5, uShallow, pow(shelf, 1.3)) * (0.92 + 0.16 * wave);
             water += uOcean * shore * 0.55;
             vec3 base = mix(water, uLandCol, smoothstep(0.04, 0.42, land));
 

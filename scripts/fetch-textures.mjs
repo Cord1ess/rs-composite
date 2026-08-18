@@ -61,10 +61,12 @@ const SIZES = {
     Most of the crispness comes from the unsharp pass rather than the pixel
     count, so this takes the resolution step that is worth paying for and stops.
   */
-  lights: [5120, 2560],
-  /* A greyscale silhouette. Only needs to define coastlines and give the lit
-     limb something to vary against. */
-  land: [3072, 1536],
+  /* 6144 after the crispness pass: the conurbation cores are the surface's
+     only real detail and earn the extra step. */
+  lights: [6144, 3072],
+  /* 5120 after the crispness pass, up from 3072: coastline and shelf detail
+     under the entry crop's magnification. */
+  land: [5120, 2560],
   /* Thin lines on black. Needs the resolution to stay crisp, but compresses
      almost to nothing because the rest of the frame is empty. */
   borders: [4096, 2048],
@@ -212,18 +214,44 @@ async function borderMask([w, h]) {
 }
 
 /*
+  The land against water decision, rasterised from the SAME dataset the border
+  lines are drawn from: Natural Earth via world-atlas, 50m. That is the whole
+  point: the border lines can never again sit off the coastline, because both
+  come from one cartography. The Blue Marble blue dominance test this replaces
+  judged land pixel by pixel from colour, which disagreed with Natural Earth
+  by a few pixels along every coast.
+
+  A slight blur keeps the coast transition continuous, which the packing
+  depends on: the old colour test's soft ramp is what made the single channel
+  seamless across the shoreline.
+*/
+async function coastMask([w, h]) {
+  const topo = JSON.parse(
+    readFileSync(resolve(root, 'node_modules/world-atlas/land-50m.json'), 'utf8'),
+  )
+  const projection = geoEquirectangular()
+    .translate([w / 2, h / 2])
+    .scale(w / (2 * Math.PI))
+  const path = geoPath(projection)
+  const land = feature(topo, topo.objects.land)
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+<rect width="${w}" height="${h}" fill="#000"/>
+<path d="${path(land)}" fill="#fff"/>
+</svg>`
+
+  return sharp(Buffer.from(svg)).removeAlpha().greyscale().blur(0.7).raw().toBuffer()
+}
+
+/*
   The land silhouette, as a single greyscale channel.
 
   The planet's colour is generated in the shader, not sampled from an albedo
   map, so nothing here needs to carry colour. All the surface texture needs to
   say is where land is and roughly how bright it is, which is one channel and a
-  fraction of the bytes: 170 kB against 571 kB for the albedo it replaces.
-
-  Ocean is crushed to black using the same blue dominance test that drove the
-  old ocean flattening. On a lights first render the ocean is a flat shaded
-  gradient anyway, so there is nothing there to lose.
+  fraction of the bytes.
 */
-async function landMask(daySrc, bathSrc, [w, h]) {
+async function landMask(daySrc, bathSrc, ne, [w, h]) {
   const base = await sharp(daySrc).resize(w, h, { fit: 'fill' }).removeAlpha().toBuffer()
   const { data } = await sharp(base).raw().toBuffer({ resolveWithObject: true })
   const depth = await sharp(bathSrc)
@@ -241,22 +269,23 @@ async function landMask(daySrc, bathSrc, [w, h]) {
     const g = data[i * 3 + 1]
     const b = data[i * 3 + 2]
     const lum = r * 0.299 + g * 0.587 + b * 0.114
-    const ocean = Math.max(0, Math.min(1, (b - r - 6) / 24))
+    /* Land against water comes from the rasterised Natural Earth mask now,
+       already softened at the edge so the packing stays continuous. */
+    const ocean = 1 - ne[i] / 255
 
     /*
       One channel, two signals. Ocean depth uses the bottom half of the range
       and land brightness the top.
 
       Depth comes from the GEBCO grid, not from Blue Marble's own ocean
-      shading. Blue Marble's is a soft gradient that looked like a blur once it
-      was actually being rendered; GEBCO has real trenches, ridges and shelves.
-
-      Kept to one channel so the file stays greyscale, which is most of why it
-      is a fraction of an albedo map. The shader splits it back apart around the
-      midpoint, and the split is continuous across the coastline so there is no
-      seam.
+      shading: GEBCO has real trenches, ridges and shelves. The squared curve
+      stretches the shelf against the abyss: GEBCO puts continental shelf near
+      the top of its range and deep ocean near the middle, and squaring pushes
+      the deeps down while barely touching the shallows, so the bright coastal
+      shelf falls away into properly dark open ocean.
     */
-    const deep = 0.5 * (depth[i] / 255)
+    const dn = depth[i] / 255
+    const deep = 0.5 * dn * dn
     const high = 0.5 + 0.5 * Math.min(1, lum / 255)
     out[i] = clamp((deep * ocean + high * (1 - ocean)) * 255)
   }
@@ -323,8 +352,9 @@ await write('lights.webp', night.buf, SIZES.lights, (p) =>
 console.log('Land silhouette and ocean depth')
 const day = await grab(SETS.day, 'try')
 const bath = await grab(SETS.bath, 'try')
-used.push(['land.webp', `${day.licence} + ${bath.licence}`, bath.url])
-await writeGraded('land.webp', await landMask(day.buf, bath.buf, SIZES.land), 60)
+const ne = await coastMask(SIZES.land)
+used.push(['land.webp', `${day.licence} + ${bath.licence} + Natural Earth`, bath.url])
+await writeGraded('land.webp', await landMask(day.buf, bath.buf, ne, SIZES.land), 60)
 
 console.log('Country outlines')
 used.push(['borders.webp', 'Natural Earth via world-atlas, public domain', 'countries-50m'])
