@@ -14,6 +14,7 @@
 import { ease } from '@/lib/scroll-progress'
 import {
   AdditiveBlending,
+  BufferAttribute,
   CatmullRomCurve3,
   Color,
   DataTexture,
@@ -38,7 +39,15 @@ import {
 
 export type ScenePlace = { id: string; lon: number; lat: number }
 
-export type MarkerFrame = { id: string; x: number; y: number; visible: boolean }
+export type MarkerFrame = {
+  id: string
+  x: number
+  y: number
+  visible: boolean
+  /** 0 to 1 across the last degrees before the limb, so markers fade out
+      instead of switching off. */
+  fade: number
+}
 
 export type EarthOptions = {
   canvas: HTMLCanvasElement | OffscreenCanvas
@@ -477,7 +486,9 @@ export class EarthScene {
   private root = new Group()
   private tilt = new Group()
   private world = new Group()
-  private arcs: { mesh: Mesh; total: number }[] = []
+  private arcs: { mesh: Mesh; total: number; curve: CatmullRomCurve3 }[] = []
+  private pulses: { mesh: Mesh; curve: CatmullRomCurve3; phase: number }[] = []
+  private pulsePos = new Vector3()
   private markers: { id: string; position: Vector3 }[] = []
 
   /** The one rotation angle. Auto rotation, drag and the seeks all write to it. */
@@ -1207,7 +1218,7 @@ export class EarthScene {
     for (const place of this.opts.places) {
       const at = toVector(place.lon, place.lat, MARKER_R)
       this.markers.push({ id: place.id, position: at })
-      this.frameBuf.push({ id: place.id, x: 0, y: 0, visible: false })
+      this.frameBuf.push({ id: place.id, x: 0, y: 0, visible: false, fade: 0 })
 
       const isOrigin = place.id === this.opts.originId
       const dot = new Mesh(
@@ -1232,15 +1243,53 @@ export class EarthScene {
         points.push(p.multiplyScalar(EARTH_R + lift * Math.sin(Math.PI * t)))
       }
 
-      const tube = new TubeGeometry(new CatmullRomCurve3(points), 96, 0.0016, 6, false)
+      const curve = new CatmullRomCurve3(points)
+      const tube = new TubeGeometry(curve, 96, 0.0016, 6, false)
+
+      /*
+        The taper. Vertex alpha runs from near solid at the origin to a
+        third at the destination, so every route visibly leaves Bangladesh
+        rather than connecting two equal points. Free at render time: it is
+        four bytes a vertex, baked once.
+      */
+      const vCount = tube.attributes.position.count
+      const colors = new Float32Array(vCount * 4)
+      for (let v = 0; v < vCount; v++) {
+        const t = Math.floor(v / 7) / 96
+        colors[v * 4] = 1
+        colors[v * 4 + 1] = 1
+        colors[v * 4 + 2] = 1
+        colors[v * 4 + 3] = 0.92 - 0.6 * t
+      }
+      tube.setAttribute('color', new BufferAttribute(colors, 4))
+
       const mesh = new Mesh(
         tube,
-        new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }),
+        new MeshBasicMaterial({ vertexColors: true, transparent: true }),
       )
       const total = tube.index ? tube.index.count : 0
       tube.setDrawRange(0, this.opts.motion ? 0 : total)
-      this.arcs.push({ mesh, total })
+      this.arcs.push({ mesh, total, curve })
       this.world.add(mesh)
+
+      /*
+        The pulse: a small bright bead travelling the route, implying
+        direction. Hero phase only, where the tour already keeps the loop
+        rendering, so the beads cost no extra frames; the showcase stays
+        still and keeps its idle skip.
+      */
+      const pulse = new Mesh(
+        new SphereGeometry(0.0075, 10, 8),
+        new MeshBasicMaterial({
+          color: 0xfff3e0,
+          transparent: true,
+          opacity: 0,
+          blending: AdditiveBlending,
+          depthWrite: false,
+        }),
+      )
+      this.pulses.push({ mesh: pulse, curve, phase: this.pulses.length * 0.23 })
+      this.world.add(pulse)
     }
 
     if (!this.opts.motion) this.arcProgress = 1
@@ -1413,6 +1462,28 @@ export class EarthScene {
       this.needsDraw = true
     }
 
+    /*
+      Route pulses, hero phase only: the tour keeps the loop rendering there
+      anyway, so the beads ride along free. They fade out with the settle so
+      the showcase stays still and keeps its idle skip.
+    */
+    if (this.opts.motion && this.arcProgress >= 1 && this.settle < 0.999) {
+      const strength = 1 - this.settle
+      for (const pulse of this.pulses) {
+        const t = MathUtils.euclideanModulo(time / 4200 + pulse.phase, 1)
+        pulse.curve.getPoint(t, this.pulsePos)
+        pulse.mesh.position.copy(this.pulsePos)
+        /* Bright through the middle of the journey, soft at both ends. */
+        const along = Math.sin(Math.PI * t)
+        ;(pulse.mesh.material as MeshBasicMaterial).opacity = 0.85 * along * strength
+      }
+      this.needsDraw = true
+    } else if (this.settle >= 0.999) {
+      for (const pulse of this.pulses) {
+        ;(pulse.mesh.material as MeshBasicMaterial).opacity = 0
+      }
+    }
+
     /* Idle skip: see the field block. Anything that would change the picture
        sets one of these apart; a settled globe renders nothing at all. */
     const dirty =
@@ -1451,13 +1522,18 @@ export class EarthScene {
       this.world.localToWorld(this.projected)
       /* Facing test is against the sphere's own centre, which the crop moves
          a long way from the origin. */
-      const front = this.rel.copy(this.projected).sub(this.centreWorld).normalize().z > 0.06
+      const relZ = this.rel.copy(this.projected).sub(this.centreWorld).normalize().z
       this.projected.project(this.camera)
       const x = (this.projected.x + 1) / 2
       const y = (-this.projected.y + 1) / 2
       frame.x = x * this.size.x
       frame.y = y * this.size.y
-      frame.visible = front && x > 0.01 && x < 0.99 && y > 0.01 && y < 0.99
+      /* Fade across the last degrees before the limb instead of switching. */
+      frame.fade =
+        x > 0.01 && x < 0.99 && y > 0.01 && y < 0.99
+          ? MathUtils.clamp((relZ - 0.04) / 0.12, 0, 1)
+          : 0
+      frame.visible = frame.fade > 0.01
     }
 
     this.opts.onMarkers(this.frameBuf)

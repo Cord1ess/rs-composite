@@ -94,12 +94,15 @@ export default function Earth3D({ motion }: { motion: boolean }) {
       for (const frame of frames) {
         const dot = dots.current.get(frame.id)
         if (dot) {
-          const t = `translate3d(${frame.x.toFixed(1)}px, ${frame.y.toFixed(1)}px, 0)|${frame.visible}`
+          const fade = frame.fade.toFixed(2)
+          const t = `translate3d(${frame.x.toFixed(1)}px, ${frame.y.toFixed(1)}px, 0)|${fade}`
           if (written.get(frame.id) !== t) {
             written.set(frame.id, t)
             dot.style.transform = `translate3d(${frame.x.toFixed(1)}px, ${frame.y.toFixed(1)}px, 0)`
-            dot.style.opacity = frame.visible ? '1' : '0'
-            dot.style.pointerEvents = frame.visible ? 'auto' : 'none'
+            /* The scene supplies a limb fade, so markers dissolve at the edge
+               of the disc instead of popping at a threshold. */
+            dot.style.opacity = fade
+            dot.style.pointerEvents = frame.fade > 0.4 ? 'auto' : 'none'
           }
         }
         if (frame.id === 'origin' || !leadersOn) continue
@@ -111,7 +114,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
         const ly = frame.y - LEAD.y - index * RUNG
 
         const key = `${frame.id}:lead`
-        const state = `${lx.toFixed(1)},${ly.toFixed(1)},${side},${frame.visible}`
+        const state = `${lx.toFixed(1)},${ly.toFixed(1)},${side},${frame.fade.toFixed(2)}`
         if (written.get(key) === state) continue
         written.set(key, state)
 
@@ -120,7 +123,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
           label.style.transform = `translate3d(${lx}px, ${ly}px, 0) translateX(${
             side > 0 ? '0' : '-100%'
           })`
-          label.style.opacity = frame.visible ? '1' : '0'
+          label.style.opacity = frame.fade.toFixed(2)
         }
 
         const line = lines.current.get(frame.id)
@@ -130,7 +133,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
             'points',
             `${frame.x},${frame.y} ${frame.x + 20 * side},${ly} ${lx - 6 * side},${ly}`,
           )
-          line.style.opacity = frame.visible ? '1' : '0'
+          line.style.opacity = frame.fade.toFixed(2)
         }
       }
     }
