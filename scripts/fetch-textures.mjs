@@ -234,94 +234,34 @@ async function landMask(daySrc, bathSrc, [w, h]) {
     .toBuffer()
 
   const n = w * h
+  const out = Buffer.alloc(n)
 
-  /*
-    Three channels, three full precision signals, replacing the old packed
-    single channel that gave depth and land tone 7 bits each:
-
-      R  ocean depth from GEBCO, full range, forced high on land
-      G  a signed distance field of the coastline, 0.5 exactly at the shore
-      B  land brightness from Blue Marble, full range, zero on water
-
-    The SDF is the part that makes coastlines crisp. A bilinear magnified
-    mask smears its edge across screen pixels; a bilinear magnified distance
-    field stays a clean ramp that the shader thresholds with derivative
-    antialiasing, so the shoreline renders sharp at any zoom this scene can
-    reach, from the same texels.
-  */
-  const land = new Uint8Array(n)
   for (let i = 0; i < n; i++) {
     const r = data[i * 3]
+    const g = data[i * 3 + 1]
     const b = data[i * 3 + 2]
+    const lum = r * 0.299 + g * 0.587 + b * 0.114
     const ocean = Math.max(0, Math.min(1, (b - r - 6) / 24))
-    land[i] = ocean < 0.5 ? 1 : 0
+
+    /*
+      One channel, two signals. Ocean depth uses the bottom half of the range
+      and land brightness the top.
+
+      Depth comes from the GEBCO grid, not from Blue Marble's own ocean
+      shading. Blue Marble's is a soft gradient that looked like a blur once it
+      was actually being rendered; GEBCO has real trenches, ridges and shelves.
+
+      Kept to one channel so the file stays greyscale, which is most of why it
+      is a fraction of an albedo map. The shader splits it back apart around the
+      midpoint, and the split is continuous across the coastline so there is no
+      seam.
+    */
+    const deep = 0.5 * (depth[i] / 255)
+    const high = 0.5 + 0.5 * Math.min(1, lum / 255)
+    out[i] = clamp((deep * ocean + high * (1 - ocean)) * 255)
   }
 
-  /*
-    Two pass chamfer distance transform (3-4 weights), run twice: distance to
-    water and distance to land. Padded horizontally so dateline coasts do not
-    see a false seam. Distances clamp at 12 texels, mapped to 0.5 +- 0.5.
-  */
-  const PAD = 16
-  const RANGE = 12
-  const pw = w + PAD * 2
-  const chamfer = (inside) => {
-    const INF = 1 << 20
-    const d = new Int32Array(pw * h)
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < pw; x++) {
-        const sx = (((x - PAD) % w) + w) % w
-        d[y * pw + x] = land[y * w + sx] === inside ? INF : 0
-      }
-    }
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < pw; x++) {
-        const i = y * pw + x
-        if (x > 0) d[i] = Math.min(d[i], d[i - 1] + 3)
-        if (y > 0) {
-          d[i] = Math.min(d[i], d[i - pw] + 3)
-          if (x > 0) d[i] = Math.min(d[i], d[i - pw - 1] + 4)
-          if (x < pw - 1) d[i] = Math.min(d[i], d[i - pw + 1] + 4)
-        }
-      }
-    }
-    for (let y = h - 1; y >= 0; y--) {
-      for (let x = pw - 1; x >= 0; x--) {
-        const i = y * pw + x
-        if (x < pw - 1) d[i] = Math.min(d[i], d[i + 1] + 3)
-        if (y < h - 1) {
-          d[i] = Math.min(d[i], d[i + pw] + 3)
-          if (x < pw - 1) d[i] = Math.min(d[i], d[i + pw + 1] + 4)
-          if (x > 0) d[i] = Math.min(d[i], d[i + pw - 1] + 4)
-        }
-      }
-    }
-    return d
-  }
-  const dLand = chamfer(1)
-  const dWater = chamfer(0)
-
-  const out = Buffer.alloc(n * 3)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x
-      const p = y * pw + (x + PAD)
-      const r = data[i * 3]
-      const g = data[i * 3 + 1]
-      const b = data[i * 3 + 2]
-      const lum = r * 0.299 + g * 0.587 + b * 0.114
-
-      /* Chamfer units are 3 per texel. Signed: positive inland. */
-      const signed = land[i] ? dLand[p] / 3 : -dWater[p] / 3
-      const sdf = 0.5 + Math.max(-1, Math.min(1, signed / RANGE)) * 0.5
-
-      out[i * 3] = land[i] ? 255 : depth[i]
-      out[i * 3 + 1] = clamp(sdf * 255)
-      out[i * 3 + 2] = land[i] ? clamp(lum) : 0
-    }
-  }
-
-  return () => sharp(out, { raw: { width: w, height: h, channels: 3 } })
+  return () => sharp(out, { raw: { width: w, height: h, channels: 1 } })
 }
 
 async function writeGraded(name, make, quality) {
@@ -384,9 +324,7 @@ console.log('Land silhouette and ocean depth')
 const day = await grab(SETS.day, 'try')
 const bath = await grab(SETS.bath, 'try')
 used.push(['land.webp', `${day.licence} + ${bath.licence}`, bath.url])
-/* Quality up from 60: compression noise in the SDF channel physically moves
-   the rendered coastline, so this map earns its bytes. */
-await writeGraded('land.webp', await landMask(day.buf, bath.buf, SIZES.land), 78)
+await writeGraded('land.webp', await landMask(day.buf, bath.buf, SIZES.land), 60)
 
 console.log('Country outlines')
 used.push(['borders.webp', 'Natural Earth via world-atlas, public domain', 'countries-50m'])
