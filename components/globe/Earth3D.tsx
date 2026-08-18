@@ -297,8 +297,21 @@ export default function Earth3D({ motion }: { motion: boolean }) {
     )
     io.observe(wrap)
 
+    /*
+      Reduced motion has no continuous loop: the scene renders, settles and
+      stops itself. The scroll scrub still has to reach the screen, so every
+      progress change pokes the loop awake; it draws the frame for the new
+      position and stops again on its own.
+    */
+    const unsubScrub = motion
+      ? null
+      : heroProgress.subscribe(() => {
+          if (revealed) handle?.run(true)
+        })
+
     return () => {
       cancelled = true
+      unsubScrub?.()
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)

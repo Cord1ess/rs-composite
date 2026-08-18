@@ -772,22 +772,14 @@
   }
 
   /*
-    No scroll sequence. The runway collapses to one screen and HeroStage pins
-    the progress at the settled end, so the globe simply arrives in its final
-    orientation with the labels already up.
+    The hero scroll sequence stays. Scrubbing maps one to one onto the
+    visitor's own scrolling, which reduced motion does not object to; what it
+    objects to is autonomous movement, and that is switched off separately:
+    no auto tour, seeks snap, arcs appear drawn, nothing slides in on its own.
+
+    An earlier version collapsed the runway here and pinned the sequence at
+    its settled end, where the headline sits at opacity zero. For anyone with
+    animation effects off at OS level, the hero simply did not exist. That is
+    an accessibility hole, not an accommodation.
   */
-  .hero-runway {
-    height: auto;
-  }
-
-  .hero-copy,
-  .hero-rail {
-    display: none;
-  }
-
-  .hero-network,
-  .globe-leaders {
-    opacity: 1;
-    transform: none;
-  }
 }

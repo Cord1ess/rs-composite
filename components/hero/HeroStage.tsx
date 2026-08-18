@@ -11,9 +11,10 @@ import { heroProgress } from '@/lib/scroll-progress'
   the copy to fade against. Neither goes through React, so scrolling the hero
   causes no reconciles at all.
 
-  Under reduced motion the runway collapses to a single screen and the progress
-  is pinned at the settled end, so the globe simply arrives in its final
-  orientation with the callouts already up.
+  The sequence runs under reduced motion too: it is scrubbed by the visitor's
+  own scrolling, not autonomous. The scene's self driven movement is disabled
+  separately. This used to pin reduced motion visitors at the settled end,
+  where the headline is faded out, which erased the hero for them entirely.
 */
 export function HeroStage({ children }: { children: ReactNode }) {
   const runwayRef = useRef<HTMLDivElement>(null)
@@ -23,13 +24,6 @@ export function HeroStage({ children }: { children: ReactNode }) {
     const runway = runwayRef.current
     const stage = stageRef.current
     if (!runway || !stage) return
-
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      heroProgress.set(1)
-      stage.style.setProperty('--hp', '1')
-      stage.dataset.phase = 'settled'
-      return
-    }
 
     let raf = 0
     const measure = () => {
