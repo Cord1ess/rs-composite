@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "next dev",
     "textures": "node scripts/fetch-textures.mjs",
+    "solve": "node scripts/globe-solve.mjs",
+    "prebuild": "node scripts/lint-shaders.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint && node scripts/lint-shaders.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
