@@ -26,6 +26,7 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   RedFormat,
+  RGBAFormat,
   RepeatWrapping,
   Scene,
   ShaderMaterial,
@@ -366,6 +367,35 @@ function extractChannel(bitmap: ImageBitmap, mode: 'r' | 'max'): DataTexture {
   return tex
 }
 
+/** The land map keeps all three channels: depth in R, the coastline signed
+    distance field in G and land tone in B. Flipped to GL row order like the
+    single channel path. */
+function extractRGBA(bitmap: ImageBitmap): DataTexture {
+  const { width, height } = bitmap
+  const cnv =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(width, height)
+      : Object.assign(document.createElement('canvas'), { width, height })
+  const ctx = cnv.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D
+  ctx.drawImage(bitmap, 0, 0)
+  const src = ctx.getImageData(0, 0, width, height).data
+  bitmap.close()
+
+  const out = new Uint8Array(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    const from = y * width * 4
+    const to = (height - 1 - y) * width * 4
+    out.set(src.subarray(from, from + width * 4), to)
+  }
+
+  const tex = new DataTexture(out, width, height, RGBAFormat)
+  tex.magFilter = LinearFilter
+  tex.minFilter = LinearMipmapLinearFilter
+  tex.generateMipmaps = true
+  tex.needsUpdate = true
+  return tex
+}
+
 /*
   One correction on top of the path, for the US leg.
 
@@ -525,7 +555,13 @@ export class EarthScene {
 
   constructor(opts: EarthOptions) {
     this.opts = opts
-    this.dprHigh = Math.min(opts.dpr, 1.5)
+    /*
+      Native resolution while calm, capped at 2. The old 1.5 cap predates the
+      dynamic resolution and the idle skip; with both in place a static frame
+      is rendered once at full crispness and then costs nothing, and motion
+      still drops to 1. Retina sharpness, paid for exactly once per view.
+    */
+    this.dprHigh = Math.min(opts.dpr, 2)
     this.dprLow = Math.min(opts.dpr, 1)
     this.dprCurrent = this.dprHigh
 
@@ -778,9 +814,10 @@ export class EarthScene {
     /* The lights ship as colour but the shader only ever used the luminance,
        so the maximum channel is folded in during extraction. It arrives sRGB
        encoded; the shader linearises with a pow, which is what the sRGB
-       texture flag used to do for free. */
+       texture flag used to do for free. The land map keeps its three planes:
+       depth, coastline SDF and land tone. */
     const lightsMap = extractChannel(lightsBm, 'max')
-    const landMap = extractChannel(landBm, 'r')
+    const landMap = extractRGBA(landBm)
     const borderMap = extractChannel(borderBm, 'r')
 
     const maxAniso = this.renderer.capabilities.getMaxAnisotropy()
@@ -853,13 +890,21 @@ export class EarthScene {
             float daylight = smoothstep(-0.18, 0.42, sunDot);
 
             /*
-              One channel, two signals. Ocean depth occupies the bottom half of
-              the range and land brightness the top, split back apart here. The
-              split is continuous across the coastline, so there is no seam.
+              Three full precision signals: depth in R, the coastline signed
+              distance field in G, land tone in B.
+
+              The SDF is why the shoreline is crisp. Bilinear magnification
+              smears a mask's edge across screen pixels, but it leaves a
+              distance ramp intact, so thresholding at 0.5 with a derivative
+              width recovers a razor edge at any zoom this scene reaches,
+              from the same texels.
             */
-            float surf = texture2D(uLand, vUv).r;
-            float land = clamp((surf - 0.5) * 2.0, 0.0, 1.0);
-            float shelf = clamp(surf * 2.0, 0.0, 1.0);
+            vec3 landData = texture2D(uLand, vUv).rgb;
+            float shelf = landData.r;
+            float coast = landData.g;
+            float terra = landData.b;
+            float cw = fwidth(coast) + 0.0012;
+            float land = smoothstep(0.5 - cw, 0.5 + cw, coast);
             float lights = texture2D(uLights, vUv).r;
 
             /*
@@ -881,17 +926,27 @@ export class EarthScene {
             */
             float wave = 0.65 * texture2D(uNoise, vUv * vec2(9.375, 4.6875)).r
                        + 0.35 * texture2D(uNoise, vUv * vec2(28.125, 14.0625)).r;
+            /* A fine third octave. Micro contrast is most of what the eye
+               calls sharpness; one extra tap of the cached noise buys it. */
+            float fine = texture2D(uNoise, vUv * vec2(93.75, 46.875)).r;
+            wave = wave * 0.82 + fine * 0.18;
 
             /*
-              A faint bright water line hugging the coasts, straight from the
-              depth channel: surf approaches 0.5 at the shoreline from below.
-              Sharpens every continent silhouette for free.
+              A faint bright water line hugging the coasts, now cut from the
+              distance field itself: a fixed-width band on the water side of
+              the shoreline, crisp at any zoom.
             */
-            float shore = smoothstep(0.30, 0.485, surf) * (1.0 - land);
+            float shore = (1.0 - land) * smoothstep(0.30, 0.48, coast);
 
             vec3 water = uOcean * (0.62 + 0.85 * shelf) * (0.92 + 0.16 * wave);
             water += uOcean * shore * 0.55;
-            vec3 base = mix(water, uLandCol, smoothstep(0.04, 0.42, land));
+            /*
+              Land tone finally has its own full precision channel, so terrain
+              actually varies: dark forest, pale desert, bright snow, with the
+              fine octave adding micro relief the source resolution cannot.
+            */
+            vec3 terrain = uLandCol * (0.55 + 1.1 * terra) * (0.90 + 0.20 * fine);
+            vec3 base = mix(water, terrain, land);
 
             /*
               High gain, because the sun only grazes: peak sunDot across the
@@ -927,9 +982,13 @@ export class EarthScene {
             */
             float glow = pow(lights, 2.2);
             glow = smoothstep(0.05, 0.45, glow);
+            /* Tighten the halo tails: magnification blurs each conurbation
+               outward, and this pulls the dim skirt back in so the cores
+               read as points rather than blooms. */
+            glow = pow(glow, 1.4);
             /* Gain 1.5, not 2.3: above roughly 1.6 the warm colour clips to
                white in every channel and the lights lose their gold. */
-            vec3 city = uCity * glow * 1.5 * (1.0 - daylight) * smoothstep(0.02, 0.18, land);
+            vec3 city = uCity * glow * 1.5 * (1.0 - daylight) * land;
 
             vec3 color = lit + city;
 
