@@ -76,6 +76,13 @@
   html {
     scrollbar-width: thin;
     scrollbar-color: rgba(178, 216, 199, 0.22) transparent;
+    /*
+      The gutter stays reserved even while the loading screen locks scrolling.
+      Without this, the scrollbar's return at the curtain's release narrowed
+      the viewport, resized the globe canvas mid reveal and blinked the earth
+      out for a frame. No layout shift, no resize, no blink.
+    */
+    scrollbar-gutter: stable;
   }
 
   ::-webkit-scrollbar {

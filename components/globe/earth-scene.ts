@@ -1296,7 +1296,15 @@ export class EarthScene {
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height, false)
     this.applyProgress(MathUtils.clamp(this.opts.getProgress(), 0, 1), true)
-    if (this.settled) {
+    /*
+      Repaint in the same task, always. Resizing the drawing buffer erases it,
+      and waiting for the next animation frame leaves at least one presented
+      frame of empty canvas, a visible blink. If the loop happens to be
+      stopped, the blink would hold until something else wakes it. Once there
+      is anything to draw, a resize is never allowed to reach the compositor
+      unpainted.
+    */
+    if (this.earthMat) {
       this.renderer.render(this.scene, this.camera)
       this.reportMarkers()
     }
