@@ -5,8 +5,10 @@ import { Section, cardBase } from '@/components/sections/Section'
 import { Facts } from '@/components/sections/Facts'
 import { Reveal } from '@/components/ui/Reveal'
 import { Photo } from '@/components/ui/Photo'
+import Image from 'next/image'
 import { Icon } from '@/components/icons/Icon'
 import { IconCircle } from '@/components/glass/Glass'
+import { leadership } from '@/content/company'
 import { cn } from '@/lib/cn'
 
 export const metadata: Metadata = {
@@ -71,6 +73,32 @@ export default function AboutPage() {
               </Reveal>
             </div>
           </div>
+        </div>
+      </Section>
+
+      <Section title="Leadership">
+        <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {leadership.map((person, i) => (
+            <Reveal key={person.name} delay={(i % 4) * 50} className="h-full">
+              <div className={cn(cardBase, 'flex h-full items-center gap-4 p-5')}>
+                <Image
+                  src={person.photo}
+                  alt={person.name}
+                  width={64}
+                  height={64}
+                  className="h-16 w-16 shrink-0 rounded-full object-cover"
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium tracking-[-0.02em] text-white">
+                    {person.name}
+                  </p>
+                  <p className="mt-0.5 text-xs uppercase tracking-widest text-accent/80">
+                    {person.title}
+                  </p>
+                </div>
+              </div>
+            </Reveal>
+          ))}
         </div>
       </Section>
     </>

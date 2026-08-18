@@ -26,6 +26,7 @@ export const utilities = [
 ]
 
 export const buildings = [
+  { figure: '60,000', suffix: ' sq ft', label: 'Land area' },
   { figure: '197,263', suffix: ' sq ft', label: 'Operation area' },
   { figure: '25', label: 'Sewing lines' },
   { figure: '8', label: 'Process stages on one site' },

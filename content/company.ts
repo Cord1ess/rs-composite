@@ -12,6 +12,35 @@ export const certifications = [
 ]
 
 /*
+  Names, titles and portraits all come from the previous site itself, which
+  resolves the open question the source documents left. The old site spells
+  the Managing Director both Sarwar and Sarawar; Sarwar is used consistently
+  here, matching the quote attribution.
+*/
+export const leadership = [
+  {
+    name: 'Md. Rashed Sarwar',
+    title: 'Chairman',
+    photo: '/photos/leadership/rashed-sarwar.webp',
+  },
+  {
+    name: 'Md. Morshed Sarwar',
+    title: 'Managing Director',
+    photo: '/photos/leadership/morshed-sarwar.webp',
+  },
+  {
+    name: 'Ajoad Morshed Farian',
+    title: 'Director',
+    photo: '/photos/leadership/ajoad-farian.webp',
+  },
+  {
+    name: 'Md. Muzibur Rahaman',
+    title: 'CEO',
+    photo: '/photos/leadership/muzibur-rahaman.webp',
+  },
+]
+
+/*
   Poland, France and the Netherlands come from the customer list in
   `RSComposite More Info.md`. The United Kingdom is inferred, since that document
   names Weird Fish without a country.

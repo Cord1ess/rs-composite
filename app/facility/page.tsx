@@ -4,6 +4,7 @@ import { Section, cardBase } from '@/components/sections/Section'
 import { Reveal } from '@/components/ui/Reveal'
 import { Photo } from '@/components/ui/Photo'
 import { utilities, buildings } from '@/content/facility'
+import { TourViewer } from '@/components/tour/TourViewer'
 import { cn } from '@/lib/cn'
 
 export const metadata: Metadata = {
@@ -23,7 +24,7 @@ export default function FacilityPage() {
       />
 
       <div className="px-6 pt-14 sm:px-8 lg:px-12">
-        <div className="mx-auto grid max-w-[1400px] grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="mx-auto grid max-w-[1400px] grid-cols-2 gap-3 lg:grid-cols-5">
           {buildings.map((stat, i) => (
             <Reveal key={stat.label} delay={i * 50}>
               <div className="glass-surface card-glow rounded-2xl px-5 py-6">
@@ -37,6 +38,14 @@ export default function FacilityPage() {
           ))}
         </div>
       </div>
+
+      <Section title="Tour the floor" lead="Look around. The markers show what happens where.">
+        <Reveal delay={60}>
+          <div className="mt-10">
+            <TourViewer />
+          </div>
+        </Reveal>
+      </Section>
 
       <Section title="Utilities" lead="What the building itself provides.">
         <div className="mt-12 grid items-stretch gap-3 lg:grid-cols-2 lg:gap-6">
