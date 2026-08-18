@@ -741,9 +741,20 @@ export class EarthScene {
             float spot = along * exp(-abs(d - 1.0) * 10.0);
             a += spot * 2.2;
 
+            /*
+              The scattering gradient. Real limb atmosphere is not one colour:
+              the shell is optically thickest right at the limb, deep and
+              saturated, and thins outward toward pale cyan white. Three stops
+              by distance replace the flat colour, which is most of the
+              difference between a glow effect and an atmosphere.
+            */
+            vec3 deepBlue = uColor * vec3(0.52, 0.72, 1.0);
+            vec3 paleEdge = mix(uColor, vec3(1.0), 0.55);
+            vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
+
             /* The line whitens toward the sun and the flare is nearly white,
-               like the source, instead of staying saturated green throughout. */
-            vec3 col = mix(uColor, vec3(1.0),
+               like the source. */
+            vec3 col = mix(atmoCol, vec3(1.0),
               clamp(spot * 1.4 + ring * 0.3 * pow(side, 3.0), 0.0, 0.8));
 
             /*
@@ -907,6 +918,7 @@ export class EarthScene {
             vec3 n = normalize(vWorldNormal);
             vec3 viewDir = normalize(cameraPosition - vWorldPos);
             float sunDot = dot(n, uSun);
+            float fres = 1.0 - clamp(dot(n, viewDir), 0.0, 1.0);
 
             /* Wide, soft terminator. A hard one reads as a lighting bug. */
             float daylight = smoothstep(-0.18, 0.42, sunDot);
@@ -977,6 +989,11 @@ export class EarthScene {
             lit += uAtmo * (1.0 - daylight) * mix(0.018, 0.008, uDark) * (0.4 + 0.6 * shelf) * (1.0 - land);
             lit += uAtmo * shore * 0.05 * (1.0 - 0.5 * uDark) * (1.0 - daylight);
 
+            /* Limb darkening: photographed planets dim toward the edge even
+               in daylight, as the light path through atmosphere lengthens.
+               Squared so the middle of the face is untouched. */
+            lit *= 1.0 - 0.22 * fres * fres;
+
             /*
               City lights are emissive: added, never lit, because they do not
               get darker for being in shadow. On land only.
@@ -996,6 +1013,16 @@ export class EarthScene {
             /* Gain 1.5, not 2.3: above roughly 1.6 the warm colour clips to
                white in every channel and the lights lose their gold. */
             vec3 city = uCity * glow * 1.5 * (1.0 - daylight) * smoothstep(0.02, 0.18, land);
+
+            /*
+              Bloom for free. Sampling the lights map with an explicit mip
+              bias reads a pre-blurred copy straight out of the existing
+              mipmap chain: no post-processing pass, one instruction, and the
+              big conurbations haze softly the way a camera sees them.
+            */
+            float cityHaze = pow(texture2D(uLights, vUv, 4.0).r, 2.2);
+            city += uCity * smoothstep(0.02, 0.5, cityHaze) * 0.35
+                  * (1.0 - daylight) * smoothstep(0.02, 0.18, land);
 
             vec3 color = lit + city;
 
@@ -1025,7 +1052,8 @@ export class EarthScene {
               one.
             */
             vec3 halfway = normalize(uSun + viewDir);
-            float fres = 1.0 - clamp(dot(n, viewDir), 0.0, 1.0);
+            /* fres is declared at the top of main; the limb darkening needed
+               it before the lighting terms. */
 
             /*
               Broad, and pushed to the limb.
@@ -1044,7 +1072,16 @@ export class EarthScene {
               sunrise spot, so the lobe is narrower and nearly all of its
               weight now comes through the fresnel term.
             */
-            float spec = pow(max(dot(n, halfway), 0.0), 34.0) * (1.0 - land * 0.8);
+            /*
+              The glitter lane. Satellite sun glitter is not a round highlight:
+              it stretches along the sun's azimuth. Penalising deviation
+              perpendicular to the sun-view plane elongates the lobe into the
+              lane, and the sea state noise then reads as waves inside it.
+            */
+            float across = dot(n, normalize(cross(uSun, viewDir) + vec3(1e-5)));
+            float spec = pow(max(dot(n, halfway), 0.0), 26.0)
+                       * exp(-45.0 * across * across)
+                       * (1.0 - land * 0.8);
             /* The sea state breaks the glint up. A perfectly smooth ocean
                reflects a clean oval, which is the tell that it is a shader. */
             spec *= 0.75 + 0.5 * wave;
