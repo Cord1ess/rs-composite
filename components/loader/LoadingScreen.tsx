@@ -31,15 +31,17 @@ const MIN_SHOWN = 800
 /** Failsafe: never hold the page hostage if an asset dies. */
 const MAX_WAIT = 8000
 /*
-  How long after the slide starts the hero entrance is released.
+  How long the curtain holds after releasing the planet, so the rise finishes
+  behind it and the lift reveals a finished scene.
 
-  Both animations used to start in the same tick, and the planet was most of
-  the way up before the curtain's edge had even reached its part of the
-  screen, so the rise went unseen. The curtain takes about 470 ms to clear the
-  planet's limb; releasing at 350 means the rise is barely a tenth in when its
-  region comes into view, so the visitor watches nearly all of it.
+  The sequencing has been through three shapes. Simultaneous start meant the
+  rise was mostly over before the curtain cleared the planet. Releasing after
+  the sweep began meant the planet visibly faded in on an already revealed
+  page, appearing out of thin air. This is the third and correct one: release
+  first, wait out the 1100 ms entrance behind the opaque curtain, then sweep.
+  The earth is simply there when the curtain lifts, as if it always had been.
 */
-const RELEASE_DELAY = 350
+const ENTRANCE_HOLD = 1150
 
 export function LoadingScreen() {
   const [progress, setProgress] = useState(heroLoadProgress)
@@ -73,20 +75,21 @@ export function LoadingScreen() {
       if (elapsed < MIN_SHOWN) await wait(MIN_SHOWN - elapsed)
     }
 
-    let releaseTimer = 0
-    void run().then(() => {
+    void run().then(async () => {
       if (cancelled) return
-      /* The slide starts now; the planet is released a beat later so its rise
-         happens where the visitor can see it. See RELEASE_DELAY. */
+      /* The planet enters now, behind the opaque curtain. See ENTRANCE_HOLD.
+         Reduced motion has no entrance to wait for, so no hold either. */
+      release()
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (!reduced) await wait(ENTRANCE_HOLD)
+      if (cancelled) return
       setPhase('exit')
       markPageRevealed()
-      releaseTimer = window.setTimeout(release, RELEASE_DELAY)
     })
 
     return () => {
       cancelled = true
       unsubscribe()
-      window.clearTimeout(releaseTimer)
       release()
     }
   }, [])
