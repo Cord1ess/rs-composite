@@ -75,9 +75,9 @@ function placeholderPanorama(): HTMLCanvasElement {
 
   /* Accent horizon, very faint. */
   const horizon = ctx.createLinearGradient(0, 492, 0, 540)
-  horizon.addColorStop(0, 'rgba(84, 227, 146, 0)')
-  horizon.addColorStop(0.5, 'rgba(84, 227, 146, 0.14)')
-  horizon.addColorStop(1, 'rgba(84, 227, 146, 0)')
+  horizon.addColorStop(0, 'rgba(240, 184, 73, 0)')
+  horizon.addColorStop(0.5, 'rgba(240, 184, 73, 0.14)')
+  horizon.addColorStop(1, 'rgba(240, 184, 73, 0)')
   ctx.fillStyle = horizon
   ctx.fillRect(0, 492, 2048, 48)
 

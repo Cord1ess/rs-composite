@@ -355,7 +355,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
               else lines.current.delete(place.id)
             }}
             fill="none"
-            stroke="rgba(180,255,224,0.45)"
+            stroke="rgba(255,235,200,0.45)"
             strokeWidth={1}
             className="transition-opacity duration-300"
           />

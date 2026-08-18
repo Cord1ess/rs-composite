@@ -25,9 +25,9 @@ const config: Config = {
           foreground: 'hsl(var(--muted-foreground))',
         },
         /*
-          The brand green, lifted from the globe's atmosphere so the interface
-          and the planet share one colour. Use as an accent, not a fill: key
-          numbers, emphasis text, live indicators.
+          The brand gold, the colour of the planet's city lights, so the
+          interface and the planet share one colour. Use as an accent, not a
+          fill: key numbers, emphasis text, live indicators.
         */
         accent: {
           DEFAULT: 'rgb(var(--accent) / <alpha-value>)',

@@ -34,10 +34,10 @@ export default function CareersPage() {
             </p>
             <a
               href={`mailto:${site.careersEmail}`}
-              className="group mt-8 inline-flex items-center gap-3 rounded-full bg-accent py-2 pl-7 pr-2 text-sm font-medium text-[#04150c] transition-transform duration-200 ease-out hover:scale-105 active:scale-95"
+              className="group mt-8 inline-flex items-center gap-3 rounded-full bg-accent py-2 pl-7 pr-2 text-sm font-medium text-[#201503] transition-transform duration-200 ease-out hover:scale-105 active:scale-95"
             >
               Send your CV
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#04150c]/15">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#201503]/15">
                 <Icon name="mail" size={16} />
               </span>
             </a>

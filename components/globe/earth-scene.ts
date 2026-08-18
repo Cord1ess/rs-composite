@@ -417,30 +417,25 @@ const SUN = new Vector3(0.3, 0.72, -0.3).normalize()
 /*
   The palette. There is no albedo texture, so these colours are the planet.
 
-  Matched to the galaxy background plate, not guessed. Sampling the plate and
-  converting to linear gives blue to green ratios of 0.42 at the bright core
-  and 0.45 across the mid nebula. The first palette sat at 0.73, which is teal,
-  and read dull and grey against the plate's emerald. Every colour below is the
-  same hue family as the sampled nebula.
-
-  Ocean is the brighter and more saturated of the two, land the darker and
-  greyer, which is the right way round: water scatters more than land at a
-  grazing sun angle.
+  The realistic blue earth, after the brand pivot away from the green planet:
+  the brand colour is now the gold of the city lights, and the planet itself
+  returns to the reference's blue. Luminance structure carries over from the
+  green palette unchanged, only the hue moves: ocean brighter and more
+  saturated than land, which is the right way round at a grazing sun angle.
 */
-const OCEAN = new Vector3(0.03, 0.158, 0.078)
-const LAND = new Vector3(0.046, 0.096, 0.056)
-/** Specular off water where the sun clears the limb. */
-const GLINT = new Vector3(0.72, 1.0, 0.78)
-/** City lights. Warm sodium gold, not the blue grey Black Marble ships. The
-    channel ratios matter more than the values: at the old (1.0, 0.9, 0.66)
-    with a 2.3 gain every bright core clipped all three channels and rendered
-    white. Deeper warmth and a lower gain keep the cores golden. */
+const OCEAN = new Vector3(0.02, 0.1, 0.26)
+const LAND = new Vector3(0.05, 0.068, 0.1)
+/** Specular off water where the sun clears the limb. Cool white. */
+const GLINT = new Vector3(0.72, 0.86, 1.0)
+/** City lights. Warm sodium gold, which is now also the brand accent, so the
+    planet wears the brand at night. The channel ratios matter more than the
+    values: gains above roughly 1.6 clip all three channels and turn the
+    cores white. */
 const CITY = new Vector3(1.0, 0.8, 0.5)
 
 /** Atmosphere. One colour for the surface scattering and the halo, so the band
-    that sits on the planet and the band that sits outside it are continuous.
-    This is the plate's bright core green, slightly lifted. */
-const ATMO = new Color(0x54e392)
+    that sits on the planet and the band that sits outside it are continuous. */
+const ATMO = new Color(0x5fb0ff)
 
 /** Radians per second. A full customer tour takes about two and a half minutes. */
 const TOUR_SPIN = 0.042
@@ -1067,7 +1062,7 @@ export class EarthScene {
       const isOrigin = place.id === this.opts.originId
       const dot = new Mesh(
         new SphereGeometry(isOrigin ? 0.009 : 0.006, 12, 10),
-        new MeshBasicMaterial({ color: 0xeafff5 }),
+        new MeshBasicMaterial({ color: 0xfff3e0 }),
       )
       dot.position.copy(at)
       this.world.add(dot)

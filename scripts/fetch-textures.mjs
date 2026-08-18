@@ -341,8 +341,11 @@ console.log('Galaxy background')
 const galaxySrc = resolve(root, 'Galaxy BG.png')
 if (existsSync(galaxySrc)) {
   const g = readFileSync(galaxySrc)
-  const webp = await sharp(g).webp({ quality: 86, effort: 6 }).toBuffer()
-  const avif = await sharp(g).avif({ quality: 58, effort: 6 }).toBuffer()
+  /* The source plate is green; the site's palette moved to a blue planet with
+     gold accents, so the hue rotates to match. Keep in sync with the values
+     used when the plate was regenerated. */
+  const webp = await sharp(g).modulate({ hue: 100, saturation: 0.95 }).webp({ quality: 86, effort: 6 }).toBuffer()
+  const avif = await sharp(g).modulate({ hue: 100, saturation: 0.95 }).avif({ quality: 58, effort: 6 }).toBuffer()
   writeFileSync(resolve(outDir, 'galaxy.webp'), webp)
   writeFileSync(resolve(outDir, 'galaxy.avif'), avif)
   total += webp.length + avif.length

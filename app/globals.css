@@ -24,9 +24,9 @@
   :root {
     --background: 0 0% 4%;
     --foreground: 0 0% 100%;
-    /* Brand green, the globe's atmosphere colour. RGB triplet for Tailwind's
-       alpha composition: rgb(var(--accent) / 0.5) and so on. */
-    --accent: 84 227 146;
+    /* Brand gold, the colour of the planet's city lights. RGB triplet for
+       Tailwind's alpha composition: rgb(var(--accent) / 0.5) and so on. */
+    --accent: 240 184 73;
     --card: 0 0% 8%;
     --muted: 0 0% 15%;
     --muted-foreground: 0 0% 62%;
@@ -75,7 +75,7 @@
   */
   html {
     scrollbar-width: thin;
-    scrollbar-color: rgba(178, 216, 199, 0.22) transparent;
+    scrollbar-color: rgba(216, 203, 178, 0.22) transparent;
     /*
       The gutter stays reserved even while the loading screen locks scrolling.
       Without this, the scrollbar's return at the curtain's release narrowed
@@ -95,14 +95,14 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(178, 216, 199, 0.22);
+    background: rgba(216, 203, 178, 0.22);
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(178, 216, 199, 0.38);
+    background: rgba(216, 203, 178, 0.38);
     border: 2px solid transparent;
     background-clip: padding-box;
   }
@@ -441,9 +441,9 @@
   pointer-events: none;
   background:
     radial-gradient(at 80% 55%, rgb(var(--accent)) 0px, transparent 55%),
-    radial-gradient(at 10% 8%, #a2f4c8 0px, transparent 55%),
-    radial-gradient(at 40% 92%, #17a468 0px, transparent 55%),
-    linear-gradient(#2fd184 0% 100%);
+    radial-gradient(at 10% 8%, #f7e3b0 0px, transparent 55%),
+    radial-gradient(at 40% 92%, #b07d1e 0px, transparent 55%),
+    linear-gradient(#e3ac3f 0% 100%);
   mask-image:
     radial-gradient(190px 190px at var(--gx, 50%) var(--gy, 50%), #000 25%, transparent 100%),
     linear-gradient(#000 0 0),
