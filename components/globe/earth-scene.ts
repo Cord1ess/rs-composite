@@ -312,9 +312,25 @@ function makeNoiseTexture(): DataTexture {
 
   Streaming progress feeds the loading screen through onLoad.
 */
-async function fetchBitmap(url: string, report: (fraction: number) => void): Promise<ImageBitmap> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${url}: ${res.status}`)
+async function fetchBitmap(
+  url: string,
+  report: (fraction: number) => void,
+  retried = false,
+): Promise<ImageBitmap> {
+  const res = await fetch(url).catch((err) => {
+    if (retried) throw err
+    return null
+  })
+  if (!res || !res.ok) {
+    /* One retry with a short backoff covers the transient failures that
+       otherwise strand the globe silently: a flaky hotel network, a CDN
+       hiccup mid deploy. A second failure is real and propagates. */
+    if (!retried) {
+      await new Promise((resolve) => setTimeout(resolve, 900))
+      return fetchBitmap(url, report, true)
+    }
+    throw new Error(`${url}: ${res ? res.status : 'network error'}`)
+  }
   const total = Number(res.headers.get('Content-Length')) || 0
   let blob: Blob
   if (res.body && total > 0) {

@@ -41,13 +41,16 @@ function probe() {
 
 export function GlobeField() {
   const [config, setConfig] = useState<{ motion: boolean } | null>(null)
+  const [fallback, setFallback] = useState(false)
 
   useEffect(() => {
     announceHero()
     const result = probe()
     if (!result) {
-      /* No globe on this device. Tell the loading screen there is nothing to
-         wait for, or it would hold until its failsafe timeout. */
+      /* No globe on this device. The baked entry frame stands in, so the
+         first impression is the same composition, just still. Tell the
+         loading screen there is nothing to wait for. */
+      setFallback(true)
       markHeroReady()
       return
     }
@@ -60,6 +63,16 @@ export function GlobeField() {
       if (window.cancelIdleCallback && typeof id === 'number') window.cancelIdleCallback(id)
     }
   }, [])
+
+  if (fallback) {
+    return (
+      <div
+        aria-hidden
+        className="absolute inset-0 z-[1] bg-cover bg-center"
+        style={{ backgroundImage: "url('/textures/hero-fallback.webp')" }}
+      />
+    )
+  }
 
   if (!config) return null
 
