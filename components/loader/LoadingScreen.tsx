@@ -50,6 +50,11 @@ export function LoadingScreen() {
     const unsubscribe = onHeroLoad(setProgress)
     let cancelled = false
 
+    /* The layout script has already switched scroll restoration to manual;
+       make the position match the promise the curtain makes. Restoration goes
+       back to the browser once the loader is gone. */
+    window.scrollTo(0, 0)
+
     const started = performance.now()
     const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
@@ -104,6 +109,16 @@ export function LoadingScreen() {
     if (phase !== 'exit') return
     const timer = window.setTimeout(() => setPhase('done'), 1000)
     return () => window.clearTimeout(timer)
+  }, [phase])
+
+  /* The loader is gone; scrolling belongs to the browser again. */
+  useEffect(() => {
+    if (phase !== 'done') return
+    try {
+      history.scrollRestoration = 'auto'
+    } catch {
+      /* Nothing to hand back on browsers without the API. */
+    }
   }, [phase])
 
   if (phase === 'done') return null

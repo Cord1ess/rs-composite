@@ -52,6 +52,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${poppins.variable} ${sourceSerif.variable}`}>
       <body className="bg-background text-white antialiased">
+        {/*
+          Before the browser restores a previous scroll position. The loading
+          screen owns the arrival: every load starts at the top so the hero
+          entry actually plays, instead of the curtain lifting onto wherever
+          the page happened to be scrolled last time. The loading screen hands
+          restoration back to the browser once it is gone.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "try{history.scrollRestoration='manual'}catch(e){}",
+          }}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
