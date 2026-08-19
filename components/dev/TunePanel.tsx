@@ -116,7 +116,7 @@ export default function TunePanel() {
       </button>
 
       {open ? (
-        <div className="fixed bottom-5 right-[4.5rem] top-5 z-[300] flex w-[350px] flex-col overflow-hidden rounded-2xl border border-white/12 bg-black/85 shadow-2xl backdrop-blur-xl">
+        <div className="fixed bottom-5 left-5 top-5 z-[300] flex w-[350px] flex-col overflow-hidden rounded-2xl border border-white/12 bg-black/85 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
             <p className="mr-auto text-[0.7rem] uppercase tracking-[0.2em] text-white/60">
               Earth tuning
@@ -163,7 +163,13 @@ export default function TunePanel() {
                               className="h-3 w-3 shrink-0 rounded-full border border-white/20"
                               style={{ background: swatch }}
                             />
-                            <span className={`text-[0.7rem] ${dirty ? 'text-accent' : 'text-white/55'}`}>
+                            <span
+                              title="Double-click to reset"
+                              onDoubleClick={() =>
+                                apply(entry.key, [...(TUNE[entry.key] as [number, number, number])])
+                              }
+                              className={`cursor-pointer select-none text-[0.7rem] ${dirty ? 'text-accent' : 'text-white/55'}`}
+                            >
                               {entry.label}
                             </span>
                           </div>
@@ -197,7 +203,9 @@ export default function TunePanel() {
                     return (
                       <div key={entry.key} className="flex items-center gap-2">
                         <span
-                          className={`w-[104px] shrink-0 text-[0.7rem] leading-tight ${
+                          title="Double-click to reset"
+                          onDoubleClick={() => apply(entry.key, TUNE[entry.key] as number)}
+                          className={`w-[104px] shrink-0 cursor-pointer select-none text-[0.7rem] leading-tight ${
                             dirty ? 'text-accent' : 'text-white/55'
                           }`}
                         >
