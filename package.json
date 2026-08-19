@@ -12,7 +12,8 @@
     "lint": "next lint && node scripts/lint-shaders.mjs",
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify-globe.mjs",
-    "verify:golden": "node scripts/verify-globe.mjs --golden"
+    "verify:golden": "node scripts/verify-globe.mjs --golden",
+    "fallback": "node scripts/bake-fallback.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",

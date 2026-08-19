@@ -247,6 +247,12 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
         else if (msg.type === 'error') onSceneError(msg.reason)
         else onSceneReady()
       }
+      /* A worker that dies mid-session (script error, OOM kill) would
+         otherwise freeze the globe silently: worker exceptions surface on
+         this event, nowhere else. */
+      worker.onerror = (event) => {
+        onSceneError(`worker: ${event.message || 'crashed'}`)
+      }
       const unsubscribe = heroProgress.subscribe((value) =>
         worker.postMessage({ type: 'progress', value }),
       )
@@ -308,16 +314,36 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
       to whichever side owns the scene. Capture stays on the element.
     */
     let down = false
+    /*
+      Move events are coalesced to one message per animation frame. High
+      rate pointers report at 120-240 Hz and the scene only ever integrates
+      the latest x, so everything beyond one message a frame was clone and
+      wake-up cost for nothing.
+    */
+    let pendingMoveX: number | null = null
+    let moveRaf = 0
+    const flushMove = () => {
+      moveRaf = 0
+      if (pendingMoveX !== null && down) handle?.pointer('move', pendingMoveX)
+      pendingMoveX = null
+    }
     const onDown = (event: PointerEvent) => {
       down = true
       canvas.setPointerCapture(event.pointerId)
       handle?.pointer('down', event.clientX)
     }
     const onMove = (event: PointerEvent) => {
-      if (down) handle?.pointer('move', event.clientX)
+      if (!down) return
+      pendingMoveX = event.clientX
+      if (!moveRaf) moveRaf = window.requestAnimationFrame(flushMove)
     }
     const onUp = (event: PointerEvent) => {
       if (!down) return
+      /* The tail of the drag matters for release velocity: flush it. */
+      if (pendingMoveX !== null) {
+        handle?.pointer('move', pendingMoveX)
+        pendingMoveX = null
+      }
       down = false
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
       handle?.pointer('up', event.clientX)
@@ -360,6 +386,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     return () => {
       cancelled = true
       registerTuner(null)
+      if (moveRaf) window.cancelAnimationFrame(moveRaf)
       unsubScrub?.()
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)

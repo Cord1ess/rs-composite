@@ -179,6 +179,11 @@ export class EarthScene {
   private needsDraw = true
   private lastDrawnSpin = Infinity
   private lastDrawnProgress = -1
+  /* Time since the last presented frame while only the drift is alive; the
+     deck moves ~2 px/s parked, so it repaints at 8 Hz, not display rate. */
+  private driftAccum = 0
+  /* Last marker frame actually posted, so identical frames post nothing. */
+  private lastSent: { x: number; y: number; fade: number; visible: boolean }[] | null = null
   private lastPointerX = 0
   private lastTime = 0
   private arcProgress = 0
@@ -923,7 +928,17 @@ export class EarthScene {
           dt * ramp * ((this.tourSpin * this.cloudLag) / (2 * Math.PI))
         this.earthMat.uniforms.uCloudShift.value = shift
         if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
-        this.needsDraw = true
+        /*
+          The cadence, not a dirty flag. Marking every frame dirty here was
+          the bug that silently retired the idle skip: the GPU repainted at
+          display rate forever to show a deck that moves two pixels a
+          second in the parked showcase. When drift is the only thing
+          alive, a repaint every 125 ms is visually identical; any real
+          motion (tour, drag, seeks, scroll, pulses) still marks the frame
+          dirty itself and renders at full rate.
+        */
+        this.driftAccum += dt
+        if (this.driftAccum >= 0.125) this.needsDraw = true
       }
     }
 
@@ -1009,6 +1024,7 @@ export class EarthScene {
       Math.abs(this.lastProgress - this.lastDrawnProgress) > 0.0002
     if (dirty) {
       this.needsDraw = false
+      this.driftAccum = 0
       this.lastDrawnSpin = rendered
       this.lastDrawnProgress = this.lastProgress
       this.renderer.render(this.scene, this.camera)
@@ -1051,6 +1067,41 @@ export class EarthScene {
           ? MathUtils.clamp((relZ - 0.04) / 0.12, 0, 1)
           : 0
       frame.visible = frame.fade > 0.01
+    }
+
+    /*
+      Post only what changed. The worker used to ship a structured clone of
+      every marker every drawn frame while the receiving side threw
+      identical ones away; the dedup belongs on this side of the boundary,
+      where an unchanged frame costs nothing at all.
+    */
+    if (!this.lastSent) {
+      /* Allocated once; fade -1 guarantees the first frame always posts. */
+      this.lastSent = this.frameBuf.map(() => ({ x: 0, y: 0, fade: -1, visible: false }))
+    } else {
+      let changed = false
+      for (let i = 0; i < this.frameBuf.length; i++) {
+        const f = this.frameBuf[i]
+        const s = this.lastSent[i]
+        if (
+          f.visible !== s.visible ||
+          Math.abs(f.x - s.x) > 0.5 ||
+          Math.abs(f.y - s.y) > 0.5 ||
+          Math.abs(f.fade - s.fade) > 0.02
+        ) {
+          changed = true
+          break
+        }
+      }
+      if (!changed) return
+    }
+    for (let i = 0; i < this.frameBuf.length; i++) {
+      const f = this.frameBuf[i]
+      const s = this.lastSent[i]
+      s.x = f.x
+      s.y = f.y
+      s.fade = f.fade
+      s.visible = f.visible
     }
 
     this.opts.onMarkers(this.frameBuf)
