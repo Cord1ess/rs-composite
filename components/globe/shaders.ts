@@ -58,14 +58,19 @@ export const haloShader = {
             float band = exp(-max(d - 1.0, 0.0) * 7.0);
             a += band * lit * (0.14 + 0.85 * sidew);
 
-            /* The spark: small and sharp, pinned right at the edge. The
-               crescent before it was still a bubble; a point light reads
-               as a point. The bleed, not the heart, carries the spread. */
+            /* The spark: tiny and blazing. The amplitude is deliberately
+               far past saturation and the footprint far smaller than every
+               earlier attempt: after the soft compression below, only a
+               core a few pixels wide lands at effectively full white, with
+               a steep but smooth gaussian shoulder into the bleed's long
+               tail. A light source is allowed a solid centre; what it can
+               never have is a big one, because a big saturated region's
+               rim is the bubble. */
             vec2 rel = vPos - uSunDir * 1.008;
             float tang = dot(rel, vec2(-uSunDir.y, uSunDir.x));
             float radial = dot(rel, uSunDir);
             float r2 = dot(rel, rel);
-            float heart = 3.0 * exp(-(tang * tang * 900.0 + radial * radial * 1600.0));
+            float heart = 10.0 * exp(-(tang * tang * 1400.0 + radial * radial * 2600.0));
             float bleed = 1.5 / (1.0 + r2 * 55.0);
             a += heart + bleed;
 
@@ -93,7 +98,12 @@ export const haloShader = {
             vec3 deepBlue = uColor * vec3(0.34, 0.78, 1.0);
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
-            vec3 col = mix(atmoCol, vec3(1.0), aC * 0.8);
+            /* The whitening takes its own exponential curve rather than a
+               fraction of the opacity: it reaches actual pure white, but
+               only where the heart's intensity carries it there, so the
+               point blazes while the broad glow stays air-blue. Smooth
+               everywhere; a clamp corner here would draw a contour. */
+            vec3 col = mix(atmoCol, vec3(1.0), 1.0 - exp(-0.85 * a));
 
             /* Dither, scaled by the alpha it is dithering so it can never
                tint empty sky. */
