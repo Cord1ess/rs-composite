@@ -17,124 +17,76 @@ export const haloShader = {
           varying vec2 vPos;
           void main() {
             float d = length(vPos);
-            /* Only the quad's far corners die early: the spark's bleed is
-               allowed to spread, so the working area is deliberately big.
-               By 2.45 the window below has already taken everything to
-               zero. */
+            /* Only the quad's far corners die early: the glow is allowed to
+               spread, so the working area is deliberately big. By 2.45 the
+               window below has already taken everything to zero. */
             if (d > 2.45) discard;
             vec2 nd = normalize(vPos + vec2(1e-5));
 
             /*
-              Three layers, matching the reference frame.
+              ONE LIGHT SOURCE behind the planet, up and right of centre,
+              never drawn. This material composites with NORMAL alpha
+              blending, not additive, and that is the final word on the
+              purple halo: additive blue over the backdrop's warm nebula
+              can only sum to violet, no matter how the hue is tuned, where
+              normal blending paints the air's own blue over it. The layers:
 
-              A thin crisp line hugging the limb. The sphere occludes this plane
-              inside the silhouette, so only the sliver just outside d = 1
-              survives, which is exactly the hard bright edge in the source.
-            */
-            /*
-              ONE LIGHT SOURCE, nothing else. A very large light far behind
-              the planet, up and to the right of centre, never drawn, only
-              implied. Two things reach the camera from it:
-
-                the edge glow   where its light grazes the limb, a glow
-                                hugging the top-right edge, brightest at
-                                the point nearest the source and fading
-                                along the arc into the dark side
-
-                the spark       at the centre of that edge glow, where the
-                                source clears the edge, light bleeds: a
-                                blown-white heart with an inverse-square
-                                halation around it
-
-              The previous versions failed as GREY. The heart's alpha
-              exceeded full saturation only across a few pixels, so nearly
-              all of the visible glow sat at mid alpha, and mid-alpha white
-              over black IS grey: the toned-down-highlights look. The
-              heart below holds alpha above one across a real area, then
-              hands off to the bleed, so the centre is blown white and the
-              falloff never presents an outline.
+                atmosphere   a faint blue shell around the entire planet,
+                             sun-independent, the air itself
+                edge glow    the lit arc, a line on the limb plus a real
+                             bloom outside it, swelling toward the source
+                the spark    a small sharp point right at the edge, blown
+                             white, its lower half depth-cut by the sphere
+                the bleed    inverse-square halation spreading from the
+                             spark as far as the eye can follow it
             */
             float side = dot(nd, uSunDir);
-            /* The lit arc. The glow lives on the source's side and dies
-               into the dark side; a whisper survives everywhere so the
-               silhouette never dissolves into the sky. */
-            float lit = 0.05 + 0.95 * smoothstep(-0.35, 0.55, side);
+            float lit = smoothstep(-0.35, 0.55, side);
             float sidew = pow(max(side, 0.0), 2.0);
 
-            /* The edge glow: a tight line on the limb and a soft shell of
-               air just outside it, both swelling toward the source. */
-            float ring = smoothstep(1.035, 1.0, d);
-            float band = exp(-max(d - 1.0, 0.0) * 14.0);
-            float a = ring * lit * (0.45 + 1.9 * sidew);
-            a += band * lit * (0.08 + 0.55 * sidew * max(side, 0.0));
+            /* The atmosphere. All the silhouette definition the dark side
+               gets, and all it needs. */
+            float shell = exp(-max(d - 1.0, 0.0) * 9.0);
+            float a = shell * 0.16;
 
-            /* The spark: not a ball of light, a crescent of overexposure
-               pressed against the edge. An isotropic heart read as a disc
-               hovering over the planet; this one is elongated along the
-               limb and shallow radially, centred nearly on the edge with
-               its lower half depth-cut by the sphere, so what survives is
-               the edge itself burning where the source sits behind it. */
-            vec2 rel = vPos - uSunDir * 1.015;
+            /* The edge glow: line plus bloom. The bloom's falloff is half
+               as steep as the old one and its gain is up, so the lit edge
+               holds its intensity as it spreads instead of dying a step
+               past the line. */
+            float ring = smoothstep(1.035, 1.0, d);
+            a += ring * lit * (0.5 + 1.6 * sidew);
+            float band = exp(-max(d - 1.0, 0.0) * 7.0);
+            a += band * lit * (0.14 + 0.85 * sidew);
+
+            /* The spark: small and sharp, pinned right at the edge. The
+               crescent before it was still a bubble; a point light reads
+               as a point. The bleed, not the heart, carries the spread. */
+            vec2 rel = vPos - uSunDir * 1.008;
             float tang = dot(rel, vec2(-uSunDir.y, uSunDir.x));
             float radial = dot(rel, uSunDir);
             float r2 = dot(rel, rel);
-            float heart = 3.0 * exp(-(tang * tang * 90.0 + radial * radial * 520.0));
-            float bleed = 1.6 / (1.0 + r2 * 55.0);
+            float heart = 3.0 * exp(-(tang * tang * 900.0 + radial * radial * 1600.0));
+            float bleed = 1.5 / (1.0 + r2 * 55.0);
             a += heart + bleed;
 
-            /*
-              The window, pushed far out. It used to close at 1.31, which
-              clipped the bleed a third of a radius past the limb; zoomed
-              out, that clip rendered as an arc around the glow, the
-              hollow ring. It now closes across 1.85 to 2.38, where the
-              inverse-square tail sits below a half percent of alpha, so
-              the fade never lands on a visible brightness: the light
-              spreads until the eye has already lost it.
-            */
+            /* The window, far out where the tail is below perception, so
+               the fade never lands on a visible brightness. */
             a *= 1.0 - smoothstep(1.85, 2.38, d);
 
-            /*
-              The scattering gradient. Real limb atmosphere is not one colour:
-              the shell is optically thickest right at the limb, deep and
-              saturated, and thins outward toward pale cyan white. Three stops
-              by distance replace the flat colour, which is most of the
-              difference between a glow effect and an atmosphere.
-            */
-            /*
-              Both stops sit toward cyan-azure, red held right down. This is
-              the second pass at the purple halo: the first kept the pale
-              stop "inside the blue family" but left enough red (0.48 in
-              display terms at the deep stop) that the additive blend over
-              the backdrop's warm regions still read violet on real
-              hardware. Red is what makes additive blue go purple; starve it.
-            */
+            /* Optically thick and saturated at the limb, thinning to pale
+               cyan outward; bright is white, dim is air, colour and
+               brightness falling away together. */
             vec3 deepBlue = uColor * vec3(0.34, 0.78, 1.0);
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
+            vec3 col = mix(atmoCol, vec3(1.0), clamp(a * 0.55, 0.0, 0.97));
 
-            /* One rule for colour: whatever is bright is white, whatever is
-               dim is air. Tying the whitening directly to the summed
-               intensity means colour and brightness fall away TOGETHER;
-               the old independent mix let the glow pass through a distinct
-               blue zone while still bright, which drew a ring around the
-               spark and read as a hollow. Neutral white, never warm: the
-               cyan-to-warm blend passes through green at half strength. */
-            vec3 col = mix(atmoCol, vec3(1.0), clamp(a * 0.5, 0.0, 0.97));
-
-            /*
-              Dither. A smooth dark green gradient over this much screen bands
-              visibly on 8 bit displays, and additive blending makes it worse.
-              Half a step of screen anchored noise breaks the contours up at an
-              amplitude well below anything the eye can see as noise.
-            */
+            /* Dither, scaled by the alpha it is dithering so it can never
+               tint empty sky. */
             float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-            /* Scaled by the alpha it is dithering. A constant amplitude put
-               noise over the whole quad, and because the negative half then
-               clipped at zero it net-ADDED a faint blue wash out to the
-               quad's edge: over the maroon nebula, a faint purple wash. */
             a += (dn - 0.5) * min(0.012, a);
 
-            gl_FragColor = vec4(col, clamp(a, 0.0, 2.0));
+            gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
           }
         `,
 }

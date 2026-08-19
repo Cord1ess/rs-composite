@@ -351,7 +351,10 @@ export class EarthScene {
       new PlaneGeometry(half * 2, half * 2),
       new ShaderMaterial({
         transparent: true,
-        blending: AdditiveBlending,
+        /* Normal alpha blending, deliberately not additive: additive blue
+           over the backdrop's warm nebula regions can only sum to violet,
+           which was the purple halo, unfixable by hue tuning. Painting the
+           air's own colour over the backdrop cannot. */
         depthWrite: false,
         depthTest: true,
         uniforms: {
