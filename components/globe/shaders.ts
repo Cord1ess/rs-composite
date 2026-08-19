@@ -190,7 +190,11 @@ export const earthShader = {
             */
             float cloudTap = texture2D(uClouds,
               vec2(vUv.x + uCloudShift + 0.0030, vUv.y + 0.0044)).r;
-            float cloudCover = smoothstep(0.22, 0.78, cloudTap) * uCloudAmt;
+            /* Thresholded to the deck and cores only. The shell's thin
+               cirrus veil neither shadows the ground nor blots the lights,
+               and that difference is itself a depth cue: the ground stays
+               readable under high haze and goes dark under real weather. */
+            float cloudCover = smoothstep(0.32, 0.85, cloudTap) * uCloudAmt;
 
             /*
               The planet's colour is generated, not sampled. There is no albedo
@@ -449,40 +453,85 @@ export const cloudShader = {
             vec3 n = normalize(vWorldNormal);
             vec3 viewDir = normalize(cameraPosition - vWorldPos);
             float sunDot = dot(n, uSun);
-            float fres = 1.0 - clamp(dot(n, viewDir), 0.0, 1.0);
-
-            vec2 cuv = vec2(vUv.x + uCloudShift, vUv.y);
-            float cl = texture2D(uClouds, cuv).r;
+            float ndv = clamp(dot(n, viewDir), 0.0, 1.0);
+            float fres = 1.0 - ndv;
+            float daylight = smoothstep(-0.18, 0.42, sunDot);
 
             /*
-              Noise-modulated threshold. The edge of every cloud dissolves
-              against a different local density, so no contour of the bitmap
-              survives as a traced outline; this is the shader-time half of
-              the edge treatment, on top of the fBm baked into the map. The
-              x repeat is an integer so the tile stays seamless at the wrap.
+              THE DEPTH STORY, the same trick the ocean pulls with the GEBCO
+              channel: one map read as strata. The value is a thickness
+              proxy, split into three layers that exist at different
+              altitudes, and the flat sheet becomes an atmosphere with an
+              inside:
+
+                veil   thin high cirrus, blue-white, translucent, riding
+                       above the deck and sheared ahead of it by the drift
+                deck   the weather itself, white, self-shaded
+                core   the dense centres, taller, brighter tops, deeper
+                       flank shadows
+
+              What makes the strata read as REAL altitude rather than three
+              tints is parallax: each layer is sampled with a screen-space
+              offset proportional to its height, so the veil slides against
+              the deck as the globe turns and the high layer leans toward
+              the limb exactly the way an elevated feature projects.
+            */
+
+            /* Tangential view direction, taken to UV space. The u axis
+               shrinks with latitude on an equirectangular map, hence the
+               cosLat term; both clamps stop the offset exploding at the
+               poles and the limb. */
+            vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), n) + vec3(1e-4));
+            vec3 north = cross(n, east);
+            vec3 vt = viewDir - n * dot(viewDir, n);
+            float cosLat = max(length(n.xz), 0.25);
+            vec2 parUv = vec2(dot(vt, east) / (6.2832 * cosLat), dot(vt, north) / 3.1416)
+                       / max(ndv, 0.30);
+            parUv = clamp(parUv, vec2(-0.012), vec2(0.012));
+
+            vec2 cuv = vec2(vUv.x + uCloudShift, vUv.y);
+            /* The deck, just above the shell base. */
+            float cl = texture2D(uClouds, cuv + parUv * 0.0025).r;
+            /* The veil: three times higher, so it parallaxes further, and
+               drifting 35% faster, wind shear pulling the high layer ahead
+               of the weather it belongs to. */
+            float hiTap = texture2D(uClouds,
+              cuv + parUv * 0.008 + vec2(uCloudShift * 0.35, 0.0)).r;
+            /* The system envelope, free from the mipmap chain: a blurred
+               copy of the map is a height field, high over the mass of each
+               system and falling to nothing at its skirts. */
+            float envelope = texture2D(uClouds, cuv, 3.5).r;
+
+            /*
+              Noise-modulated threshold on the deck, so no contour of the
+              bitmap survives as a traced outline. The low edge sits high on
+              purpose: thin haze admitted here merged the whole northern
+              hemisphere into one milky sheet in an earlier cut.
             */
             float grain = texture2D(uNoise, vUv * vec2(21.0, 10.5)).r;
-            /* The low edge sits high on purpose: the first cut of this shader
-               started it at 0.10 and the thin haze it admitted merged the
-               whole northern hemisphere into one milky sheet. Eroding the
-               haze and keeping the cores is what gives the deck shape. */
-            float cover = smoothstep(0.24 + 0.22 * grain, 0.90, cl);
-            float a = cover * uCloudAmt;
+            float deck = smoothstep(0.26 + 0.20 * grain, 0.82, cl);
+            float core = smoothstep(0.58, 0.96, cl);
+            /* Cirrus lives around weather, not in empty sky: the envelope
+               gate ties every wisp to a system it can plausibly belong to,
+               and the deck term hands the pixel over where the deck is
+               solid underneath. */
+            float veil = smoothstep(0.14, 0.58, hiTap)
+                       * smoothstep(0.06, 0.30, envelope)
+                       * (1.0 - deck * 0.85);
+
+            float a = clamp(deck + veil * 0.38, 0.0, 1.0) * uCloudAmt;
 
             /*
               Fresnel thinning near the silhouette. Two jobs: it stops the
               shell's own rim from stacking a second bright edge onto the
               atmosphere halo, and it kills the polygonal cloud horizon a
               translucent sphere would otherwise show against space. Gentle
-              and late: the first cut faded 85% from 0.62 and shaved the
-              clouds off a whole band of the globe, which read as a bald
-              glass strip along the horizon.
+              and late, or the limb goes bald.
             */
             a *= 1.0 - 0.6 * smoothstep(0.80, 0.995, fres);
 
             /* At night the deck is a ghost: barely lit, but still dense
                enough to sit visibly over the city lights. */
-            float daylight = smoothstep(-0.18, 0.42, sunDot);
             a *= 0.22 + 0.78 * daylight;
 
             if (a < 0.004) discard;
@@ -490,26 +539,26 @@ export const cloudShader = {
             /*
               Self-shading: one tap displaced toward the sun. Where the deck
               thickens up-sun of a fragment, that fragment sits in its
-              neighbour's shade, which models each bank against its own dark
-              side. On the shell this reads as relief; painted on the ground
-              the same trick read as stains, because it darkened terrain, not
-              cloud.
+              neighbour's shade. Scaled up over the cores: a tall cloud
+              throws a deeper flank shadow, which is most of what makes the
+              centres read as towers instead of stains.
             */
-            float up = texture2D(uClouds, cuv + vec2(0.0026, 0.0038)).r;
-            float shade = clamp((up - cl) * 1.6, 0.0, 0.5);
+            float up = texture2D(uClouds, cuv + parUv * 0.0025 + vec2(0.0026, 0.0038)).r;
+            float shade = clamp((up - cl) * 1.6, 0.0, 0.5) * (0.55 + 0.9 * core);
 
             /*
-              Sunlit white with the same grazing-gain story as the surface, so
-              the deck and the ground agree about where day is, over a blue
-              skylight fill. The fill is not a nicety: a neutral grey cloud
-              over this saturated an ocean reads tan by contrast, which is
-              exactly what the first cut of this shader looked like. Where
-              the sun is weak the ambient term keeps the deck in the blue
-              family, the way dim clouds photograph from orbit.
+              The lighting ramp across the strata. Sunlit white over a blue
+              skylight fill (a neutral grey cloud over this saturated an
+              ocean reads tan by contrast); the envelope lifts the tops of
+              each system into more sun than its skirts, and the veil sits
+              bluer and dimmer than the deck, thin air against thick water
+              vapour.
             */
-            vec3 col = vec3(0.94, 0.97, 1.02)
-              * (1.15 * pow(clamp(sunDot, 0.0, 1.0), 1.05))
-              * (1.0 - shade);
+            float direct = pow(clamp(sunDot, 0.0, 1.0), 1.05);
+            float topLight = 0.88 + 0.35 * smoothstep(0.30, 0.85, envelope);
+            vec3 col = vec3(0.94, 0.97, 1.02) * (1.15 * direct) * topLight * (1.0 - shade);
+            col = mix(vec3(0.68, 0.79, 0.96) * (0.15 + 0.95 * direct), col,
+                      clamp(deck * 1.25, 0.0, 1.0));
             col += vec3(0.07, 0.12, 0.24) * (0.30 + 0.45 * (1.0 - daylight));
 
             /* The same limb darkening the surface wears. */
