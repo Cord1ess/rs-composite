@@ -31,54 +31,50 @@ export const haloShader = {
               survives, which is exactly the hard bright edge in the source.
             */
             /*
-              TWO LIGHTS, after a round of review. Everything shaped was
-              removed: the old elliptical glow and the directional flare
-              both read as a discernible SMUDGE hanging at the crest, and a
-              light whose outline you can see is a shader, not light.
+              ONE LIGHT SOURCE, nothing else. A very large light far behind
+              the planet, up and to the right of centre, never drawn, only
+              implied. Two things reach the camera from it:
 
-              Light one, the reflection: the limb line itself, luminous the
-              entire way round the edge, swelling toward the sun, peaking in
-              a tiny blinding sparkle with a thin glint streak hugging the
-              edge's curve. The sparkle's lower half lands inside the
-              silhouette where the sphere's depth test clips it, so the
-              planet's edge cuts the rising sun.
+                the edge glow   where its light grazes the limb, a glow
+                                hugging the top-right edge, brightest at
+                                the point nearest the source and fading
+                                along the arc into the dark side
 
-              Light two, the even spread: an isotropic inverse-square
-              scatter around the crest. No axis, no ellipse, no boundary;
-              inverse-square falloff has an indefinitely soft tail, so the
-              eye finds brightness falling away but never finds a shape.
+                the spark       at the centre of that edge glow, where the
+                                source clears the edge, light bleeds: a
+                                blown-white heart with an inverse-square
+                                halation around it
+
+              The previous versions failed as GREY. The heart's alpha
+              exceeded full saturation only across a few pixels, so nearly
+              all of the visible glow sat at mid alpha, and mid-alpha white
+              over black IS grey: the toned-down-highlights look. The
+              heart below holds alpha above one across a real area, then
+              hands off to the bleed, so the centre is blown white and the
+              falloff never presents an outline.
             */
-            float ring = smoothstep(1.03, 1.0, d);
-            float side = dot(nd, uSunDir) * 0.5 + 0.5;
-            /* The whole edge carries the reflection: the anti-sun floor is
-               high enough to read as a lit rim everywhere. Only the thin
-               line gets this; the broad terms below keep low floors so the
-               night sky stays dark. */
-            float a = ring * mix(0.55, 1.9, pow(side, 1.4));
+            float side = dot(nd, uSunDir);
+            /* The lit arc. The glow lives on the source's side and dies
+               into the dark side; a whisper survives everywhere so the
+               silhouette never dissolves into the sky. */
+            float lit = 0.05 + 0.95 * smoothstep(-0.35, 0.55, side);
+            float sidew = pow(max(side, 0.0), 2.0);
 
-            /* The soft atmosphere bloom just past the line, still sun-heavy
-               and quiet on the night side, where additive blue over the
-               backdrop's warm nebula manufactures purple. */
-            float bloom = smoothstep(1.14, 0.995, d);
-            a += pow(bloom, 4.0) * 0.22 * mix(0.12, 1.0, pow(side, 1.6));
+            /* The edge glow: a tight line on the limb and a soft shell of
+               air just outside it, both swelling toward the source. */
+            float ring = smoothstep(1.035, 1.0, d);
+            float band = exp(-max(d - 1.0, 0.0) * 14.0);
+            float a = ring * lit * (0.45 + 1.9 * sidew);
+            a += band * lit * (0.08 + 0.55 * sidew * max(side, 0.0));
 
-            /* Centred at 1.03, not 1.0: the plane sits behind the sphere,
-               which occludes it out to about d 1.01, and a point centred
-               exactly on the limb loses itself behind the planet. */
-            vec2 rel = vPos - uSunDir * 1.03;
-            float rr = dot(rel, rel);
-
-            /* Light two: the even spread. */
-            float scatter = 0.6 / (1.0 + rr * 14.0);
-            a += scatter;
-
-            /* Light one's peak: the sparkle core, and the glint streak
-               stretched along the limb tangent, razor thin radially. */
-            float tang = dot(rel, vec2(-uSunDir.y, uSunDir.x));
-            float radial = dot(rel, uSunDir);
-            float core = exp(-rr * 900.0) * 7.0;
-            float streak = exp(-abs(radial) * 70.0) * exp(-tang * tang * 42.0) * 1.5;
-            a += core + streak;
+            /* The spark. Centred just past the limb (the plane sits behind
+               the sphere, which occludes it to about d 1.01), so the planet
+               cuts its lower half: the source is BEHIND the edge. */
+            vec2 rel = vPos - uSunDir * 1.02;
+            float r2 = dot(rel, rel);
+            float heart = 3.5 * exp(-r2 * 220.0);
+            float bleed = 1.6 / (1.0 + r2 * 55.0);
+            a += heart + bleed;
 
             /*
               The window. Every term above must reach zero BEFORE the
@@ -106,14 +102,12 @@ export const haloShader = {
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
 
-            /* The line whitens toward the sun; the sparkle and its streak
-               are nearly pure sunlight. The even spread contributes less to
-               the whitening and the target is barely warm: a cyan-to-warm
-               blend passes through green at half strength, and the scatter
-               lives exactly in that half-strength zone. */
-            vec3 col = mix(atmoCol, vec3(1.0, 0.99, 0.95),
-              clamp(core + streak * 0.8 + scatter * 0.55 + ring * 0.35 * pow(side, 2.0),
-                    0.0, 0.95));
+            /* The heart is pure white and the bleed carries that white out
+               with it, decaying into the blue of the air; the line whitens
+               where the source sits behind it. Neutral white, not warm: the
+               cyan-to-warm blend passes through green at half strength. */
+            vec3 col = mix(atmoCol, vec3(1.0),
+              clamp(heart + bleed * 0.85 + ring * sidew * 0.35, 0.0, 0.97));
 
             /*
               Dither. A smooth dark green gradient over this much screen bands
