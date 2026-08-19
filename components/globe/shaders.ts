@@ -124,6 +124,11 @@ export const haloShader = {
               ones land within a few percent of opaque.
             */
             float aC = 1.0 - exp(-uCompress * a);
+            /* Most of this quad's 2.5-radius working area carries alpha far
+               below one display step; dropping it here skips the blend
+               stage across all of it. Below the dither's reach, so no
+               visible boundary can form. */
+            if (aC < 0.002) discard;
 
             /* Optically thick and saturated at the limb, thinning to pale
                cyan outward; bright is white, dim is air, colour and
@@ -245,6 +250,12 @@ export const earthShader = {
           }
 
           float landBicubic(vec2 uv) {
+            /* Bicubic exists to fix MAGNIFICATION blur at the entry crop.
+               Minified (the ball view, most of the page's life) the texel
+               footprint passes a screen pixel, reconstruction adds nothing
+               over the mip chain, and one bilinear tap replaces four. */
+            vec2 fpx = fwidth(uv) / uLandTexel;
+            if (max(fpx.x, fpx.y) > 1.0) return texture2D(uLand, uv).r;
             vec2 tsz = 1.0 / uLandTexel;
             vec2 crd = uv * tsz - 0.5;
             vec2 fxy = fract(crd);
@@ -650,6 +661,19 @@ export const cloudShader = {
             vec2 cuv = vec2(vUv.x + uCloudShift, vUv.y);
             /* The deck, just above the shell base. */
             float cl = texture2D(uClouds, cuv + parUv * uParDeck).r;
+            /* The system envelope, free from the mipmap chain: a blurred
+               copy of the map is a height field, high over the mass of each
+               system and falling to nothing at its skirts. */
+            float envelope = texture2D(uClouds, cuv, 3.5).r;
+
+            /* Early out over clear sky. A fragment that can produce
+               neither deck (cl under every threshold the grain could
+               build) nor veil (the envelope gate is closed) skips the
+               remaining taps and the whole lighting path; roughly half the
+               shell's area is such sky. Exact, not conservative: both
+               terms evaluate to zero everywhere this fires. */
+            if (cl < uDeckLo && envelope < uVeilEnvLo) discard;
+
             /* The veil: higher, so it parallaxes further. It drifts in
                EXACT lockstep with the deck, one uCloudShift for both: an
                earlier cut sheared it 35% faster as wind shear and the two
@@ -659,10 +683,6 @@ export const cloudShader = {
                every cloud below it. */
             float hiTap = texture2D(uClouds,
               cuv + parUv * uParVeil + vec2(0.165, 0.032)).r;
-            /* The system envelope, free from the mipmap chain: a blurred
-               copy of the map is a height field, high over the mass of each
-               system and falling to nothing at its skirts. */
-            float envelope = texture2D(uClouds, cuv, 3.5).r;
 
             /*
               Noise-modulated threshold on the deck, so no contour of the

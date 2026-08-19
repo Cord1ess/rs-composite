@@ -54,7 +54,12 @@ export async function loadEarthMaps(opts: {
     worst case and only ever differs past an 8:1 footprint this view barely
     reaches.
   */
-  lightsMap.anisotropy = Math.min(maxAniso, 8)
+  /* The lights take level 4 where the rest take 8: the largest texture in
+     the scene, sampled twice per fragment, and its content is dots whose
+     glow the shader blooms anyway — the golden diff at 4 is indistinguishable
+     while the worst-case bandwidth halves. Coastlines keep 8; their
+     crispness is the point of the land map. */
+  lightsMap.anisotropy = Math.min(maxAniso, 4)
   landMap.anisotropy = Math.min(maxAniso, 8)
   borderMap.anisotropy = Math.min(maxAniso, 8)
   if (cloudMap) {
