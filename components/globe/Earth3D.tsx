@@ -6,8 +6,10 @@ import { places } from '@/content/globe'
 import { heroProgress } from '@/lib/scroll-progress'
 import { heroEntranceGate, markHeroReady, reportHeroLoad } from '@/lib/hero-loader'
 import { registerTuner, type TuneValues } from '@/lib/tune-bus'
+import { CLOUDS } from './config'
+import { fetchEarthBitmaps } from './scene/assets'
 import type { MarkerFrame } from './earth-scene'
-import type { FromWorker, ToWorker } from './protocol'
+import type { FromWorker } from './protocol'
 
 /*
   Only reached through a dynamic import behind the capability gate, so three.js
@@ -179,6 +181,18 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     const rect = wrap.getBoundingClientRect()
 
     /*
+      The textures start downloading NOW, on the main thread, before either
+      render path exists. This is where the <link preload> cache lives, so
+      these fetches consume the preloads instead of duplicating them (audit
+      III, A1: the worker's own fetches re-downloaded every preloaded map).
+      Loading progress feeds the loader directly; the decoded bitmaps hand
+      over to whichever path wins — transferred zero-copy to the worker, or
+      awaited in place on the main thread.
+    */
+    const aborter = new AbortController()
+    const bitmaps = fetchEarthBitmaps(CLOUDS, reportHeroLoad, aborter.signal)
+
+    /*
       Worker construction can throw in environments the feature test cannot
       see: a worker-src CSP, an embedder that stubs Worker, an extension in
       the way. Any throw falls through to the main-thread path, which needs
@@ -239,42 +253,54 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
       }
       const box = mainThread ? null : holder.__earthWorker
       if (box) {
-      const worker = box.worker
-      worker.onmessage = (event: MessageEvent) => {
-        const msg = event.data as FromWorker
-        if (msg.type === 'markers') applyMarkers(msg.frames)
-        else if (msg.type === 'load') reportHeroLoad(msg.value)
-        else if (msg.type === 'error') onSceneError(msg.reason)
-        else onSceneReady()
-      }
-      /* A worker that dies mid-session (script error, OOM kill) would
-         otherwise freeze the globe silently: worker exceptions surface on
-         this event, nowhere else. */
-      worker.onerror = (event) => {
-        onSceneError(`worker: ${event.message || 'crashed'}`)
-      }
-      const unsubscribe = heroProgress.subscribe((value) =>
-        worker.postMessage({ type: 'progress', value }),
-      )
-      handle = {
-        setSize: (width, height) => worker.postMessage({ type: 'size', width, height }),
-        run: (running) => worker.postMessage({ type: 'run', running }),
-        pointer: (phase, x) => worker.postMessage({ type: 'pointer', phase, x }),
-        tune: (values) => worker.postMessage({ type: 'tune', values }),
-        dispose: () => {
-          unsubscribe()
-          /* Delayed so a strict mode replay can cancel it and reuse the
-             worker. In production this simply runs a second after unmount. */
-          box.timer = window.setTimeout(() => {
-            worker.postMessage({ type: 'dispose' })
-            window.setTimeout(() => worker.terminate(), 250)
-            delete holder.__earthWorker
-          }, 1000)
-        },
-      }
-      /* The dev tuning panel reaches the scene through the bus; any values
-         it sent before this point replay now. */
-      registerTuner(handle.tune)
+        const worker = box.worker
+        worker.onmessage = (event: MessageEvent) => {
+          const msg = event.data as FromWorker
+          if (msg.type === 'markers') applyMarkers(msg.frames)
+          else if (msg.type === 'error') onSceneError(msg.reason)
+          else onSceneReady()
+        }
+        /* A worker that dies mid-session (script error, OOM kill) would
+           otherwise freeze the globe silently: worker exceptions surface on
+           this event, nowhere else. */
+        worker.onerror = (event) => {
+          onSceneError(`worker: ${event.message || 'crashed'}`)
+        }
+        /* The bitmaps travel, they are not copied: ImageBitmap transfer is
+           a pointer handover. A fetch failure lands on the fallback. */
+        bitmaps
+          .then((b) => {
+            worker.postMessage(
+              { type: 'assets', ...b },
+              b.clouds ? [b.lights, b.land, b.borders, b.clouds] : [b.lights, b.land, b.borders],
+            )
+          })
+          .catch((err) => {
+            console.error('[Earth3D] texture load failed.', err)
+            onSceneError('assets')
+          })
+        const unsubscribe = heroProgress.subscribe((value) =>
+          worker.postMessage({ type: 'progress', value }),
+        )
+        handle = {
+          setSize: (width, height) => worker.postMessage({ type: 'size', width, height }),
+          run: (running) => worker.postMessage({ type: 'run', running }),
+          pointer: (phase, x) => worker.postMessage({ type: 'pointer', phase, x }),
+          tune: (values) => worker.postMessage({ type: 'tune', values }),
+          dispose: () => {
+            unsubscribe()
+            /* Delayed so a strict mode replay can cancel it and reuse the
+               worker. In production this simply runs a second after unmount. */
+            box.timer = window.setTimeout(() => {
+              worker.postMessage({ type: 'dispose' })
+              window.setTimeout(() => worker.terminate(), 250)
+              delete holder.__earthWorker
+            }, 1000)
+          },
+        }
+        /* The dev tuning panel reaches the scene through the bus; any values
+           it sent before this point replay now. */
+        registerTuner(handle.tune)
       }
     }
     if (mainThread) {
@@ -287,9 +313,9 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
           motion,
           dpr: window.devicePixelRatio,
           getProgress: () => heroProgress.value,
+          getAssets: () => bitmaps,
           onMarkers: applyMarkers,
           onReady: onSceneReady,
-          onLoad: reportHeroLoad,
           onError: onSceneError,
         })
         scene.setSize(wrap.clientWidth, wrap.clientHeight)
@@ -386,6 +412,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     return () => {
       cancelled = true
       registerTuner(null)
+      aborter.abort()
       if (moveRaf) window.cancelAnimationFrame(moveRaf)
       unsubScrub?.()
       canvas.removeEventListener('pointerdown', onDown)
@@ -417,6 +444,8 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
       */}
       <canvas
         ref={canvasRef}
+        role="img"
+        aria-label="Interactive globe showing RS Composite in Narayanganj, Bangladesh, with routes to its export markets in Poland, France, the United Kingdom, the Netherlands and the United States"
         className="h-full w-full cursor-grab touch-pan-y active:cursor-grabbing"
       />
 

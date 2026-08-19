@@ -55,7 +55,7 @@ import { makeNoiseTexture } from './textures'
 import { TUNE } from './tune'
 import { SkyState } from './scene/sky-state'
 import { buildCloudMaterial, buildEarthMaterial, buildHaloMaterial } from './scene/materials'
-import { loadEarthMaps } from './scene/assets'
+import { prepareEarthMaps, type EarthBitmaps } from './scene/assets'
 import { MarkerProjector } from './scene/markers'
 
 export type { MarkerFrame, ScenePlace } from './scene/markers'
@@ -76,8 +76,10 @@ export type EarthOptions = {
   getProgress: () => number
   onMarkers: (frames: MarkerFrame[]) => void
   onReady: () => void
-  /** Asset loading progress, 0 to 1, for the loading screen. */
-  onLoad?: (progress: number) => void
+  /** The texture bitmaps, fetched by the OWNER on the main thread (audit
+      III, A1: that is where the preload cache lives) and handed over here;
+      across the worker boundary they arrive transferred, zero-copy. */
+  getAssets: () => Promise<EarthBitmaps>
   /** Terminal failure: assets unreachable after retry, or a shader refused
       to compile. The owner swaps in the static fallback. */
   onError?: (reason: string) => void
@@ -98,8 +100,6 @@ export class EarthScene {
   private sky = new SkyState()
   /** Marker projection with source-side change detection: scene/markers. */
   private projector = new MarkerProjector()
-  /** Cancels in-flight texture fetches when the scene dies mid-load. */
-  private aborter = new AbortController()
 
   /** The one rotation angle. Auto rotation, drag and the seeks all write to it. */
   private spin: number
@@ -398,17 +398,10 @@ export class EarthScene {
       this canvas, which is why the renderer clears to transparent. Rendering it
       would cost a full screen texture pass for something that never moves; a
       background image costs nothing and the browser composites it once.
-
-      Weights are rough file size shares, so the loading bar moves honestly.
     */
-    const maps = await loadEarthMaps({
-      clouds: CLOUDS,
-      renderer: this.renderer,
-      signal: this.aborter.signal,
-      onProgress: this.opts.onLoad,
-    })
+    const bitmaps = await this.opts.getAssets()
     if (this.disposed) return
-    const { lightsMap, landMap, borderMap, cloudMap } = maps
+    const { lightsMap, landMap, borderMap, cloudMap } = prepareEarthMaps(bitmaps, this.renderer)
 
     /* One noise tile serves both materials: the earth's sea state and the
        shell's edge grain. It is generated, so two copies would be identical
@@ -602,7 +595,14 @@ export class EarthScene {
 
   /* ------------------------------------------------------------- frame */
 
+  /*
+    One frame, five acts: read the inputs, run the motion machine, write the
+    sky, run the governors, then decide whether the picture changed enough
+    to draw. Long on purpose — the acts share too much local state to split
+    without threading a context object through every one of them.
+  */
   private frame = (time: number) => {
+    /* ---- act 1: time and scroll input ---- */
     const dt = this.lastTime ? Math.min((time - this.lastTime) / 1000, 0.05) : 0.016
     this.lastTime = time
 
@@ -611,6 +611,7 @@ export class EarthScene {
     const scrollSpeed = Math.abs(progress - this.prevP) / dt
     this.prevP = progress
 
+    /* ---- act 2: the motion state machine ---- */
     if (!this.dragging) {
       this.velocity *= Math.pow(0.02, dt)
       this.idleFor += dt
@@ -661,6 +662,7 @@ export class EarthScene {
       }
     }
 
+    /* ---- act 3: the rendered angle and the sky uniforms ---- */
     /*
       The rendered angle. The scroll scrubs the turn between the two states
       directly: settle 0 renders the hero angle, settle 1 renders the showcase
@@ -709,6 +711,7 @@ export class EarthScene {
       }
     }
 
+    /* ---- act 4: the resolution governors ---- */
     /*
       Frame time feedback: see the field block. Sampled only while running at
       the high tier, since the low tier during motion is supposed to be the
@@ -787,6 +790,7 @@ export class EarthScene {
     }
     this.lastRendered = rendered
 
+    /* ---- act 5: entrance animation, pulses, and the draw decision ---- */
     if (this.arcProgress < 1) {
       this.arcProgress = Math.min(1, this.arcProgress + dt / 1.5)
       const eased = 1 - Math.pow(1 - this.arcProgress, 3)
@@ -912,7 +916,6 @@ export class EarthScene {
 
   dispose() {
     this.disposed = true
-    this.aborter.abort()
     this.stop()
     ;(this.opts.canvas as unknown as EventTarget).removeEventListener(
       'webglcontextrestored',

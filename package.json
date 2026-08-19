@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify-globe.mjs",
     "verify:golden": "node scripts/verify-globe.mjs --golden",
-    "fallback": "node scripts/bake-fallback.mjs"
+    "fallback": "node scripts/bake-fallback.mjs",
+    "check": "node scripts/lint-shaders.mjs && tsc --noEmit && node scripts/verify-globe.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",

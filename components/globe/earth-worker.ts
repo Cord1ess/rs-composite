@@ -7,17 +7,21 @@
  *
  *   in   init      canvas (transferred), places, originId, motion, dpr,
  *                  width, height, progress
+ *   in   assets    the texture bitmaps, fetched on the main thread and
+ *                  transferred in (loading progress stays main-side too)
  *   in   progress  the hero scroll value, pushed on change
  *   in   size      resize
  *   in   pointer   down | move | up, with the x coordinate
  *   in   run       start or stop the loop, from the IntersectionObserver
+ *   in   tune      live parameter values from the dev panel
  *   in   dispose   tear down and close the worker
- *   out  load      asset progress 0..1, for the loading screen
  *   out  ready     first complete frame has been drawn
- *   out  markers   screen positions for the DOM markers, each drawn frame
+ *   out  markers   screen positions for the DOM markers, when they moved
+ *   out  error     terminal failure; the main thread swaps the fallback
  */
 
 import { EarthScene } from './earth-scene'
+import type { EarthBitmaps } from './scene/assets'
 import type { ToWorker } from './protocol'
 
 /* Window's postMessage signature demands a targetOrigin; the worker scope's
@@ -31,6 +35,18 @@ const ctx = self as unknown as {
 let scene: EarthScene | null = null
 const progress = { value: 0 }
 
+/*
+  The bitmaps arrive from the main thread (fetched there, where the preload
+  cache lives; transferred here, zero-copy) some time around init. The scene
+  awaits this promise; a duplicate assets message — a StrictMode replay
+  refetching from cache — is ignored.
+*/
+let provideAssets: (assets: EarthBitmaps) => void
+const assets = new Promise<EarthBitmaps>((resolve) => {
+  provideAssets = resolve
+})
+let assetsDelivered = false
+
 ctx.onmessage = (event) => {
   const msg = event.data
   switch (msg.type) {
@@ -43,9 +59,9 @@ ctx.onmessage = (event) => {
         motion: msg.motion,
         dpr: msg.dpr,
         getProgress: () => progress.value,
+        getAssets: () => assets,
         onMarkers: (frames) => ctx.postMessage({ type: 'markers', frames }),
         onReady: () => ctx.postMessage({ type: 'ready' }),
-        onLoad: (value) => ctx.postMessage({ type: 'load', value }),
         onError: (reason) => ctx.postMessage({ type: 'error', reason }),
       })
       /*
@@ -75,6 +91,17 @@ ctx.onmessage = (event) => {
       break
     case 'tune':
       scene?.setTune(msg.values)
+      break
+    case 'assets':
+      if (!assetsDelivered) {
+        assetsDelivered = true
+        provideAssets({
+          lights: msg.lights,
+          land: msg.land,
+          borders: msg.borders,
+          clouds: msg.clouds,
+        })
+      }
       break
     case 'dispose':
       scene?.dispose()

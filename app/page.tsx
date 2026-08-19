@@ -21,9 +21,14 @@ export default function HomePage() {
     background, so it preloads as an image. Home page only: no other route
     pays for these bytes.
   */
-  preload('/textures/lights.webp', { as: 'fetch' })
-  preload('/textures/land.webp', { as: 'fetch' })
-  preload('/textures/borders.webp', { as: 'fetch' })
+  /* crossOrigin matters: an as="fetch" preload without it is made in
+     no-cors mode, a plain fetch() runs in cors mode, and the mismatch makes
+     the browser refuse the preload match — every texture downloaded twice
+     (audit III, A1). With anonymous both requests are mode-identical. */
+  preload('/textures/lights.webp', { as: 'fetch', crossOrigin: 'anonymous' })
+  preload('/textures/land.webp', { as: 'fetch', crossOrigin: 'anonymous' })
+  preload('/textures/borders.webp', { as: 'fetch', crossOrigin: 'anonymous' })
+  preload('/textures/clouds.webp', { as: 'fetch', crossOrigin: 'anonymous' })
   preload('/textures/galaxy.avif', { as: 'image', type: 'image/avif' })
 
   return (

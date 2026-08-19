@@ -5,6 +5,7 @@
  */
 
 import type { ScenePlace, MarkerFrame } from './earth-scene'
+import type { EarthBitmaps } from './scene/assets'
 
 export type ToWorker =
   | {
@@ -23,11 +24,13 @@ export type ToWorker =
   | { type: 'pointer'; phase: 'down' | 'move' | 'up'; x: number }
   | { type: 'run'; running: boolean }
   | { type: 'tune'; values: Record<string, number | [number, number, number]> }
+  /* The texture bitmaps, fetched on the main thread (where the preload
+     cache lives) and transferred in with zero copies. Exactly once. */
+  | ({ type: 'assets' } & EarthBitmaps)
   | { type: 'dispose' }
 
 export type FromWorker =
   | { type: 'markers'; frames: MarkerFrame[] }
-  | { type: 'load'; value: number }
   | { type: 'ready' }
   /* Terminal failure (assets unreachable, shader refused to compile). The
      main thread swaps in the static fallback and releases the loader. */

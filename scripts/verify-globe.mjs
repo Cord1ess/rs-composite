@@ -36,6 +36,24 @@ mkdirSync(outDir, { recursive: true })
 const record = process.argv.includes('--golden')
 const BASE = process.env.GLOBE_URL ?? 'http://localhost:3000'
 
+/*
+  The harness needs a running dev server. In a chained `npm run check` that
+  may not exist; comparing against nothing helps nobody, so compare mode
+  skips loudly (exit 0) while recording mode fails, because silently
+  recording nothing would be worse. GLOBE_REQUIRE=1 makes the skip a
+  failure for CI-style use.
+*/
+try {
+  await fetch(BASE, { signal: AbortSignal.timeout(3000) })
+} catch {
+  if (record || process.env.GLOBE_REQUIRE === '1') {
+    console.error(`FAIL: no dev server reachable at ${BASE}`)
+    process.exit(1)
+  }
+  console.warn(`SKIP: no dev server reachable at ${BASE} — golden verify not run`)
+  process.exit(0)
+}
+
 /* Per-view thresholds: mean abs subpixel diff, and % of pixels with any
    channel off by >24. The beads travelling the arcs are the main honest
    source of frame-to-frame noise. */

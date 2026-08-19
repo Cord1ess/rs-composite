@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { SECTIONS, TUNE, type TuneValue } from '@/components/globe/tune'
+import { TUNE, type TuneValue } from '@/components/globe/tune'
+import { SECTIONS } from '@/components/globe/tune-schema'
 import { sendTune, type TuneValues } from '@/lib/tune-bus'
 
 /*
