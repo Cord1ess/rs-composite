@@ -722,26 +722,38 @@ export class EarthScene {
     if (this.earthMat) {
       this.earthMat.uniforms.uDark.value = this.settle
       /*
-        Cloud drift, whenever motion is allowed at all. Increasing the shift
-        moves the deck AGAINST the spin direction (verified against the
-        sphere's u parametrisation: a feature's azimuth is rendered + spin -
-        2 pi shift), so the weather rolls backwards around the planet, a lap
-        every 80 seconds or so. Realism was explicitly traded away here, in
-        two steps: a lap per nine minutes read as static, a lap per three
-        and a half minutes still read as barely alive, and the owner asked
-        for visible rotation over meteorology. One value
-        into both materials, so the deck and the
-        shadow it casts can never slide apart, and the frame is marked dirty
-        so the drift can never freeze and snap.
+        Cloud drift. The shell is a child of `world`, so the deck already
+        rotates WITH the planet everywhere; the shift is a slip on top of
+        that, moving the clouds against the spin (a feature's azimuth is
+        rendered + spin - 2 pi shift). The LAG fraction below is the whole
+        model: during the tour the deck's absolute rotation is (1 - LAG)
+        times the planet's, riding with it just a little slower, and over a
+        parked planet (the showcase, the pre-tour hold) the same slip is
+        all that moves, a calm sign of life. The rates tried before this
+        model spun the deck at up to twice tour speed backwards, which read
+        as two unrelated shells.
 
-        This deliberately runs in the settled showcase too, which retires
-        the idle skip there: a planet whose weather stops moving the moment
-        the page settles reads as a paused video. The planet itself still
-        holds its pose; only the deck lives. Reduced motion keeps the full
-        idle skip.
+        The ramp is the exact ramp the tour itself fades in with, so the
+        clouds and the planet start moving together at the entrance: the
+        drift used to run from the first frame while the tour waited out
+        RESUME_AFTER, and clouds rolling under a parked planet for three
+        seconds read as a glitch. Away from the resting hero state (drag,
+        seeks, the showcase) the slip runs at full strength, which keeps
+        the settled section alive; that retires the idle skip there, a
+        deliberate trade. One shift into both materials, so the deck and
+        the shadow it casts can never slide apart, and the frame is marked
+        dirty so the drift can never freeze and snap.
       */
       if (this.opts.motion) {
-        const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.0125
+        const resting =
+          !this.dragging && !this.pendingReturn && !this.returning && this.settle === 0
+        const ramp = resting
+          ? MathUtils.clamp((this.idleFor - RESUME_AFTER) / 1.5, 0, 1)
+          : 1
+        const LAG = 0.15
+        const shift =
+          this.earthMat.uniforms.uCloudShift.value +
+          dt * ramp * ((TOUR_SPIN * LAG) / (2 * Math.PI))
         this.earthMat.uniforms.uCloudShift.value = shift
         if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
         this.needsDraw = true

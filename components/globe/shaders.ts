@@ -502,11 +502,15 @@ export const cloudShader = {
             vec2 cuv = vec2(vUv.x + uCloudShift, vUv.y);
             /* The deck, just above the shell base. */
             float cl = texture2D(uClouds, cuv + parUv * 0.0025).r;
-            /* The veil: three times higher, so it parallaxes further, and
-               drifting 35% faster, wind shear pulling the high layer ahead
-               of the weather it belongs to. */
+            /* The veil: three times higher, so it parallaxes further. It
+               drifts in EXACT lockstep with the deck, one uCloudShift for
+               both: an earlier cut sheared it 35% faster as wind shear and
+               the two layers read as independently spinning shells. The
+               fixed offset decorrelates its pattern from the deck's, so it
+               reads as its own field of wisps rather than a halo traced
+               around every cloud below it. */
             float hiTap = texture2D(uClouds,
-              cuv + parUv * 0.008 + vec2(uCloudShift * 0.35, 0.0)).r;
+              cuv + parUv * 0.008 + vec2(0.165, 0.032)).r;
             /* The system envelope, free from the mipmap chain: a blurred
                copy of the map is a height field, high over the mass of each
                system and falling to nothing at its skirts. */
