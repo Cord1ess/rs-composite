@@ -30,64 +30,60 @@ export const haloShader = {
               inside the silhouette, so only the sliver just outside d = 1
               survives, which is exactly the hard bright edge in the source.
             */
+            /*
+              TWO LIGHTS, after a round of review. Everything shaped was
+              removed: the old elliptical glow and the directional flare
+              both read as a discernible SMUDGE hanging at the crest, and a
+              light whose outline you can see is a shader, not light.
+
+              Light one, the reflection: the limb line itself, luminous the
+              entire way round the edge, swelling toward the sun, peaking in
+              a tiny blinding sparkle with a thin glint streak hugging the
+              edge's curve. The sparkle's lower half lands inside the
+              silhouette where the sphere's depth test clips it, so the
+              planet's edge cuts the rising sun.
+
+              Light two, the even spread: an isotropic inverse-square
+              scatter around the crest. No axis, no ellipse, no boundary;
+              inverse-square falloff has an indefinitely soft tail, so the
+              eye finds brightness falling away but never finds a shape.
+            */
             float ring = smoothstep(1.03, 1.0, d);
-            /* A soft bloom past it, tight rather than a wide fog. Tightened
-               twice now: the far tail is where additive blue over the
-               backdrop's warm nebula regions manufactures purple, so the
-               tail gets steeper, shorter and quieter each time it shows. */
-            float bloom = smoothstep(1.14, 0.995, d);
-            float a = ring * 1.6 + pow(bloom, 4.0) * 0.22;
-
-            /*
-              Brightest on the side the sun is on, fading round the limb, rather
-              than an even ring. A backlit planet does not glow equally all the
-              way round, and an even ring is the giveaway that it is a shader.
-            */
             float side = dot(nd, uSunDir) * 0.5 + 0.5;
-            /* The anti-sun floor sits low: the night-side limb is where the
-               glow has nothing bright behind it and every stray photon of
-               additive blue lands on dark red nebula as violet. */
-            a *= mix(0.12, 1.0, pow(side, 1.6));
+            /* The whole edge carries the reflection: the anti-sun floor is
+               high enough to read as a lit rim everywhere. Only the thin
+               line gets this; the broad terms below keep low floors so the
+               night sky stays dark. */
+            float a = ring * mix(0.55, 1.9, pow(side, 1.4));
 
-            /*
-              The sunrise ambience. A soft flare along the limb where the sun
-              clears it, bleeding outward with an exponential tail. Reduced
-              from its old strength: it is no longer the sun itself, it is
-              the scattered warmth AROUND the sun point below.
-            */
-            float along = pow(max(dot(nd, uSunDir), 0.0), 40.0);
-            float spot = along * exp(-abs(d - 1.0) * 10.0);
-            a += spot * 1.3;
+            /* The soft atmosphere bloom just past the line, still sun-heavy
+               and quiet on the night side, where additive blue over the
+               backdrop's warm nebula manufactures purple. */
+            float bloom = smoothstep(1.14, 0.995, d);
+            a += pow(bloom, 4.0) * 0.22 * mix(0.12, 1.0, pow(side, 1.6));
 
-            /*
-              THE SUN POINT. A hard, intense crest of light pinned exactly
-              where the sun clears the limb: an elliptical core hugging the
-              curve of the edge, stretched along the limb tangent and tight
-              radially, with its own small bloom. Its lower half lands inside
-              the silhouette, where the sphere's depth test clips it, so the
-              planet's edge cuts the point in half exactly the way a horizon
-              cuts a rising sun. The flare above and the surface glint below
-              both grade away from this one spot, which is what ties the
-              three light systems together.
-            */
-            /* Centred at 1.03, not 1.0: the plane sits behind the sphere, so
-               the sphere's depth test occludes it out to about d 1.02. A
-               core centred exactly on the limb loses nearly all of itself
-               behind the planet; 1.03 puts the bright half right on the
-               visible edge, still cut from below by the silhouette. */
+            /* Centred at 1.03, not 1.0: the plane sits behind the sphere,
+               which occludes it out to about d 1.01, and a point centred
+               exactly on the limb loses itself behind the planet. */
             vec2 rel = vPos - uSunDir * 1.03;
+            float rr = dot(rel, rel);
+
+            /* Light two: the even spread. */
+            float scatter = 0.6 / (1.0 + rr * 14.0);
+            a += scatter;
+
+            /* Light one's peak: the sparkle core, and the glint streak
+               stretched along the limb tangent, razor thin radially. */
             float tang = dot(rel, vec2(-uSunDir.y, uSunDir.x));
             float radial = dot(rel, uSunDir);
-            float pr2 = tang * tang * 195.0 + radial * radial * 780.0;
-            float core = exp(-pr2) * 6.0;
-            float pglow = exp(-pr2 * 0.075) * 1.35;
-            a += core + pglow;
+            float core = exp(-rr * 900.0) * 7.0;
+            float streak = exp(-abs(radial) * 70.0) * exp(-tang * tang * 42.0) * 1.5;
+            a += core + streak;
 
             /*
-              The window. Every term above must reach zero BEFORE the discard
-              radius, or the cut shows: the flare's exponential tail was
-              still visibly alive at d 1.32 and the discard circle rendered
-              as a hard clipped arc across the glow.
+              The window. Every term above must reach zero BEFORE the
+              discard radius, or the cut renders as a hard clipped arc
+              across the glow.
             */
             a *= 1.0 - smoothstep(1.20, 1.31, d);
 
@@ -110,12 +106,14 @@ export const haloShader = {
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
 
-            /* The line whitens toward the sun; the point itself is nearly
-               pure sunlight, warm white, and drags the flare around it the
-               same way. */
-            vec3 col = mix(atmoCol, vec3(1.0, 0.98, 0.93),
-              clamp(core * 0.8 + pglow * 0.35 + spot * 1.2 + ring * 0.3 * pow(side, 3.0),
-                    0.0, 0.92));
+            /* The line whitens toward the sun; the sparkle and its streak
+               are nearly pure sunlight. The even spread contributes less to
+               the whitening and the target is barely warm: a cyan-to-warm
+               blend passes through green at half strength, and the scatter
+               lives exactly in that half-strength zone. */
+            vec3 col = mix(atmoCol, vec3(1.0, 0.99, 0.95),
+              clamp(core + streak * 0.8 + scatter * 0.55 + ring * 0.35 * pow(side, 2.0),
+                    0.0, 0.95));
 
             /*
               Dither. A smooth dark green gradient over this much screen bands
