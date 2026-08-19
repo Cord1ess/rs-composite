@@ -265,7 +265,10 @@ export class EarthScene {
       error, and after the loader's timeout the page revealed a black hero.
       Now it lands on the owner, who swaps in the static fallback.
     */
-    this.load().catch((err) => {
+    this.load().catch((err: unknown) => {
+      /* An aborted fetch is the owner cancelling (unmount, StrictMode
+         replay), never a failure worth a fallback or a log. */
+      if (this.disposed || (err as Error)?.name === 'AbortError') return
       console.error('[earth-scene] asset load failed; handing over to the fallback.', err)
       this.fail('assets')
     })

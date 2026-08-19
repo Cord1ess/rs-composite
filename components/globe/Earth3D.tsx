@@ -276,6 +276,10 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
             )
           })
           .catch((err) => {
+            /* A deliberate abort (unmount, StrictMode replay) is not a
+               failure; the replayed mount fetches its own set. Only real
+               errors reach the fallback. */
+            if (aborter.signal.aborted) return
             console.error('[Earth3D] texture load failed.', err)
             onSceneError('assets')
           })
@@ -412,7 +416,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     return () => {
       cancelled = true
       registerTuner(null)
-      aborter.abort()
+      aborter.abort(new DOMException('globe unmounted', 'AbortError'))
       if (moveRaf) window.cancelAnimationFrame(moveRaf)
       unsubScrub?.()
       canvas.removeEventListener('pointerdown', onDown)
