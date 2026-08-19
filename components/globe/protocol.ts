@@ -29,3 +29,6 @@ export type FromWorker =
   | { type: 'markers'; frames: MarkerFrame[] }
   | { type: 'load'; value: number }
   | { type: 'ready' }
+  /* Terminal failure (assets unreachable, shader refused to compile). The
+     main thread swaps in the static fallback and releases the loader. */
+  | { type: 'error'; reason: string }

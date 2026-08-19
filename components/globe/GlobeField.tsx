@@ -87,7 +87,9 @@ export function GlobeField() {
 
   return (
     <div className="absolute inset-0 z-[1]">
-      <Earth3D motion={config.motion} />
+      {/* onFail: a terminal scene error (assets, shaders, worker) swaps the
+          canvas for the same static fallback the capability gate uses. */}
+      <Earth3D motion={config.motion} onFail={() => setFallback(true)} />
     </div>
   )
 }

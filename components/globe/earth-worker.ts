@@ -46,6 +46,7 @@ ctx.onmessage = (event) => {
         onMarkers: (frames) => ctx.postMessage({ type: 'markers', frames }),
         onReady: () => ctx.postMessage({ type: 'ready' }),
         onLoad: (value) => ctx.postMessage({ type: 'load', value }),
+        onError: (reason) => ctx.postMessage({ type: 'error', reason }),
       })
       /*
         No start() here. Loading, compiling and the single ready frame all

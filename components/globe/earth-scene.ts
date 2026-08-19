@@ -95,6 +95,9 @@ export type EarthOptions = {
   onReady: () => void
   /** Asset loading progress, 0 to 1, for the loading screen. */
   onLoad?: (progress: number) => void
+  /** Terminal failure: assets unreachable after retry, or a shader refused
+      to compile. The owner swaps in the static fallback. */
+  onError?: (reason: string) => void
 }
 
 export class EarthScene {
@@ -187,6 +190,7 @@ export class EarthScene {
 
   private opts: EarthOptions
   private disposed = false
+  private errored = false
   private projected = new Vector3()
   private rel = new Vector3()
   private centreWorld = new Vector3()
@@ -238,6 +242,9 @@ export class EarthScene {
           `vertex: ${log(vertex) || 'ok'}\nfragment: ${log(fragment) || 'ok'}\n` +
           `program: ${gl.getProgramInfoLog(program)?.trim() || ''}`,
       )
+      /* Loud is not enough: a missing planet is a broken hero. Route the
+         failure to the owner so the static fallback takes over. */
+      this.fail('shader-compile')
     }
 
     /*
@@ -267,7 +274,22 @@ export class EarthScene {
     this.scene.add(this.root)
 
     this.addGlow()
-    void this.load()
+    /*
+      A failed load used to vanish into a void'd rejection: no ready, no
+      error, and after the loader's timeout the page revealed a black hero.
+      Now it lands on the owner, who swaps in the static fallback.
+    */
+    this.load().catch((err) => {
+      console.error('[earth-scene] asset load failed; handing over to the fallback.', err)
+      this.fail('assets')
+    })
+  }
+
+  /** Terminal failure funnel: fires the owner's onError exactly once. */
+  private fail(reason: string) {
+    if (this.disposed || this.errored) return
+    this.errored = true
+    this.opts.onError?.(reason)
   }
 
   /*

@@ -37,7 +37,7 @@ const originFacts = [
 const LEAD = { x: 54, y: 26 }
 const RUNG = 46
 
-export default function Earth3D({ motion }: { motion: boolean }) {
+export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dots = useRef(new Map<string, HTMLDivElement>())
@@ -164,9 +164,29 @@ export default function Earth3D({ motion }: { motion: boolean }) {
       })
     }
 
+    /*
+      Terminal failure from either render path: release the loader so the
+      page reveals on time, then hand the hero to the owner's static
+      fallback. Everything here tears down through the normal unmount.
+    */
+    const onSceneError = (reason: string) => {
+      if (cancelled) return
+      console.error(`[Earth3D] globe failed (${reason}); switching to the static fallback.`)
+      markHeroReady()
+      onFail?.()
+    }
+
     const rect = wrap.getBoundingClientRect()
 
-    if ('transferControlToOffscreen' in canvas) {
+    /*
+      Worker construction can throw in environments the feature test cannot
+      see: a worker-src CSP, an embedder that stubs Worker, an extension in
+      the way. Any throw falls through to the main-thread path, which needs
+      nothing but the canvas; the fallthrough flag exists because the catch
+      cannot reach the else branch of the feature test.
+    */
+    let mainThread = !('transferControlToOffscreen' in canvas)
+    if (!mainThread) {
       /*
         Worker path. All WebGL work leaves the main thread, so scrolling can
         never contend with rendering.
@@ -185,30 +205,46 @@ export default function Earth3D({ motion }: { motion: boolean }) {
         holder.__earthWorker.timer = null
       }
       if (!holder.__earthWorker) {
-        const spawned = new Worker(new URL('./earth-worker', import.meta.url))
-        holder.__earthWorker = { worker: spawned, timer: null }
-        const offscreen = canvas.transferControlToOffscreen()
-        spawned.postMessage(
-          {
-            type: 'init',
-            canvas: offscreen,
-            places,
-            originId: 'origin',
-            motion,
-            dpr: window.devicePixelRatio,
-            width: rect.width,
-            height: rect.height,
-            progress: heroProgress.value,
-          },
-          [offscreen],
-        )
+        let spawned: Worker | null = null
+        let transferred = false
+        try {
+          spawned = new Worker(new URL('./earth-worker', import.meta.url))
+          const offscreen = canvas.transferControlToOffscreen()
+          transferred = true
+          spawned.postMessage(
+            {
+              type: 'init',
+              canvas: offscreen,
+              places,
+              originId: 'origin',
+              motion,
+              dpr: window.devicePixelRatio,
+              width: rect.width,
+              height: rect.height,
+              progress: heroProgress.value,
+            },
+            [offscreen],
+          )
+          holder.__earthWorker = { worker: spawned, timer: null }
+        } catch (err) {
+          console.error('[Earth3D] worker path failed, using the main thread.', err)
+          spawned?.terminate()
+          if (transferred) {
+            /* The canvas is already neutered; nothing can render into it. */
+            onSceneError('worker-init')
+            return
+          }
+          mainThread = true
+        }
       }
-      const box = holder.__earthWorker
+      const box = mainThread ? null : holder.__earthWorker
+      if (box) {
       const worker = box.worker
       worker.onmessage = (event: MessageEvent) => {
         const msg = event.data as FromWorker
         if (msg.type === 'markers') applyMarkers(msg.frames)
         else if (msg.type === 'load') reportHeroLoad(msg.value)
+        else if (msg.type === 'error') onSceneError(msg.reason)
         else onSceneReady()
       }
       const unsubscribe = heroProgress.subscribe((value) =>
@@ -233,7 +269,9 @@ export default function Earth3D({ motion }: { motion: boolean }) {
       /* The dev tuning panel reaches the scene through the bus; any values
          it sent before this point replay now. */
       registerTuner(handle.tune)
-    } else {
+      }
+    }
+    if (mainThread) {
       import('./earth-scene').then(({ EarthScene: Ctor }) => {
         if (cancelled) return
         const scene = new Ctor({
@@ -246,6 +284,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
           onMarkers: applyMarkers,
           onReady: onSceneReady,
           onLoad: reportHeroLoad,
+          onError: onSceneError,
         })
         scene.setSize(wrap.clientWidth, wrap.clientHeight)
         if (revealed) scene.start()
