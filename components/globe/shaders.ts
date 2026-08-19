@@ -180,6 +180,19 @@ export const earthShader = {
             float lights = texture2D(uLights, vUv).r;
 
             /*
+              The cloud deck lives on its own shell now (cloudShader below).
+              The surface keeps exactly one tap of the same map, read slightly
+              toward the sun, and gets two things from it: the cast shadow
+              that anchors the deck to the ground on the day side, and weather
+              cover over the city lights at night. The offset is what sells
+              altitude: each shadow sits displaced from the cloud that throws
+              it, down-sun, and the displacement matches the shell's height.
+            */
+            float cloudTap = texture2D(uClouds,
+              vec2(vUv.x + uCloudShift + 0.0030, vUv.y + 0.0044)).r;
+            float cloudCover = smoothstep(0.22, 0.78, cloudTap) * uCloudAmt;
+
+            /*
               The planet's colour is generated, not sampled. There is no albedo
               map: the texture only says land or water and how deep, and the
               shading does the rest. That is the whole reason this version is a
@@ -250,6 +263,11 @@ export const earthShader = {
                Squared so the middle of the face is untouched. */
             lit *= 1.0 - 0.22 * fres * fres;
 
+            /* The cast shadow. Day side only: a shadow needs a sun. This is
+               the one term that makes the shell read as floating above the
+               surface rather than painted onto it. */
+            lit *= 1.0 - cloudCover * 0.34 * daylight;
+
             /*
               City lights are emissive: added, never lit, because they do not
               get darker for being in shadow. On land only.
@@ -279,6 +297,13 @@ export const earthShader = {
             float cityHaze = pow(texture2D(uLights, vUv, 4.0).r, 2.2);
             city += uCity * smoothstep(0.02, 0.5, cityHaze) * 0.35
                   * (1.0 - daylight) * smoothstep(0.02, 0.18, land);
+
+            /* Weather over the lights. The shell is nearly invisible at
+               night, so without this an overcast conurbation would shine
+               through its own cloud cover. 0.7, not less: the residue of
+               gold under a dusk cloud is what muddied the deck toward
+               khaki in the first cut. */
+            city *= 1.0 - cloudCover * 0.7;
 
             vec3 color = lit + city;
 
@@ -341,6 +366,8 @@ export const earthShader = {
             /* The sea state breaks the glint up. A perfectly smooth ocean
                reflects a clean oval, which is the tell that it is a shader. */
             spec *= 0.75 + 0.5 * wave;
+            /* Overcast water does not glitter. */
+            spec *= 1.0 - cloudCover * 0.7;
             /* Shallow water catches more of it than open ocean, which gives the
                glint some structure instead of a clean oval. */
             color += uGlint * spec * (0.10 + 2.4 * pow(fres, 2.5)) * (0.8 + 0.5 * shelf) * 1.4;
@@ -376,32 +403,119 @@ export const earthShader = {
             vec3 rimCol = mix(uAtmo, vec3(1.0), 0.35 * smoothstep(0.1, 0.6, sunDot));
             color += rimCol * (rim + haze) * sunSide;
 
-            /*
-              Clouds, one tap at low opacity. Lit by the sun on the day side,
-              a ghost at night, covering city lights beneath them the way
-              weather actually does. Drift comes through uCloudShift, driven
-              only while the hero loop is rendering anyway.
-            */
-            /*
-              Two decks of the same map at different scales and drift rates,
-              so the cover has parallax and structure instead of reading as
-              one wrapped sheet. The density curve crushes thin haze and
-              solidifies the cores, and the relief term embosses each cloud
-              against its own shadowed side, which is what makes them read as
-              volumes rather than stains on the surface.
-            */
-            float clA = texture2D(uClouds, vec2(vUv.x + uCloudShift, vUv.y)).r;
-            float clB = texture2D(uClouds, vec2(vUv.x * 1.31 + 0.41 + uCloudShift * 1.7, vUv.y)).r;
-            float cover = max(clA, clB * 0.8);
-            cover = smoothstep(0.14, 0.72, cover);
-            float clShadow = texture2D(uClouds, vec2(vUv.x + uCloudShift + 0.0016, vUv.y - 0.0016)).r;
-            float relief = clamp((clA - clShadow) * 2.6, -0.4, 0.4);
-            vec3 cloudCol = vec3(0.80, 0.87, 0.98)
-              * (0.10 + 1.15 * pow(clamp(sunDot, 0.0, 1.0), 1.1))
-              * (1.0 + relief);
-            color = mix(color, cloudCol, cover * uCloudAmt * (0.10 + 0.5 * daylight));
-
             gl_FragColor = vec4(color, 1.0);
+            #include <colorspace_fragment>
+          }
+        `,
+}
+
+/*
+  The cloud deck. A separate translucent sphere riding 0.6% above the surface,
+  drawn after the opaque earth, which buys three things the surface-painted
+  clouds could never have: real parallax against the ground at the limb, a
+  silhouette that can be lit independently of the terrain under it, and depth,
+  because the deck's cast shadow (one tap in the earth shader above) lands
+  displaced from the cloud that throws it.
+
+  Two earlier cloud passes were painted into the earth fragment and both were
+  rejected: a single tap read as a wrapped png, and a two-deck emboss read as
+  stains. The failure was structural, not a tuning miss: paint mixed into the
+  ground plane can never separate from it.
+*/
+export const cloudShader = {
+  vertexShader: `
+          varying vec2 vUv;
+          varying vec3 vWorldNormal;
+          varying vec3 vWorldPos;
+          void main() {
+            vUv = uv;
+            vWorldNormal = normalize(mat3(modelMatrix) * normal);
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorldPos = wp.xyz;
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+  fragmentShader: `
+          uniform sampler2D uClouds;
+          uniform sampler2D uNoise;
+          uniform vec3 uSun;
+          uniform float uCloudShift;
+          uniform float uCloudAmt;
+          varying vec2 vUv;
+          varying vec3 vWorldNormal;
+          varying vec3 vWorldPos;
+
+          void main() {
+            vec3 n = normalize(vWorldNormal);
+            vec3 viewDir = normalize(cameraPosition - vWorldPos);
+            float sunDot = dot(n, uSun);
+            float fres = 1.0 - clamp(dot(n, viewDir), 0.0, 1.0);
+
+            vec2 cuv = vec2(vUv.x + uCloudShift, vUv.y);
+            float cl = texture2D(uClouds, cuv).r;
+
+            /*
+              Noise-modulated threshold. The edge of every cloud dissolves
+              against a different local density, so no contour of the bitmap
+              survives as a traced outline; this is the shader-time half of
+              the edge treatment, on top of the fBm baked into the map. The
+              x repeat is an integer so the tile stays seamless at the wrap.
+            */
+            float grain = texture2D(uNoise, vUv * vec2(21.0, 10.5)).r;
+            /* The low edge sits high on purpose: the first cut of this shader
+               started it at 0.10 and the thin haze it admitted merged the
+               whole northern hemisphere into one milky sheet. Eroding the
+               haze and keeping the cores is what gives the deck shape. */
+            float cover = smoothstep(0.24 + 0.22 * grain, 0.90, cl);
+            float a = cover * uCloudAmt;
+
+            /*
+              Fresnel thinning near the silhouette. Two jobs: it stops the
+              shell's own rim from stacking a second bright edge onto the
+              atmosphere halo, and it kills the polygonal cloud horizon a
+              translucent sphere would otherwise show against space. Gentle
+              and late: the first cut faded 85% from 0.62 and shaved the
+              clouds off a whole band of the globe, which read as a bald
+              glass strip along the horizon.
+            */
+            a *= 1.0 - 0.6 * smoothstep(0.80, 0.995, fres);
+
+            /* At night the deck is a ghost: barely lit, but still dense
+               enough to sit visibly over the city lights. */
+            float daylight = smoothstep(-0.18, 0.42, sunDot);
+            a *= 0.22 + 0.78 * daylight;
+
+            if (a < 0.004) discard;
+
+            /*
+              Self-shading: one tap displaced toward the sun. Where the deck
+              thickens up-sun of a fragment, that fragment sits in its
+              neighbour's shade, which models each bank against its own dark
+              side. On the shell this reads as relief; painted on the ground
+              the same trick read as stains, because it darkened terrain, not
+              cloud.
+            */
+            float up = texture2D(uClouds, cuv + vec2(0.0026, 0.0038)).r;
+            float shade = clamp((up - cl) * 1.6, 0.0, 0.5);
+
+            /*
+              Sunlit white with the same grazing-gain story as the surface, so
+              the deck and the ground agree about where day is, over a blue
+              skylight fill. The fill is not a nicety: a neutral grey cloud
+              over this saturated an ocean reads tan by contrast, which is
+              exactly what the first cut of this shader looked like. Where
+              the sun is weak the ambient term keeps the deck in the blue
+              family, the way dim clouds photograph from orbit.
+            */
+            vec3 col = vec3(0.94, 0.97, 1.02)
+              * (1.15 * pow(clamp(sunDot, 0.0, 1.0), 1.05))
+              * (1.0 - shade);
+            col += vec3(0.07, 0.12, 0.24) * (0.30 + 0.45 * (1.0 - daylight));
+
+            /* The same limb darkening the surface wears. */
+            col *= 1.0 - 0.22 * fres * fres;
+
+            gl_FragColor = vec4(col, a);
             #include <colorspace_fragment>
           }
         `,

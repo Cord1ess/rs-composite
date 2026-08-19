@@ -61,7 +61,7 @@ import {
   vantageDip,
 } from './config'
 import { extractChannel, fetchBitmap, makeNoiseTexture } from './textures'
-import { earthShader, haloShader } from './shaders'
+import { cloudShader, earthShader, haloShader } from './shaders'
 
 export type ScenePlace = { id: string; lon: number; lat: number }
 
@@ -118,6 +118,7 @@ export class EarthScene {
   /** Which end of the blend the current drag is moving. */
   private dragInShowcase = false
   private earthMat: ShaderMaterial | null = null
+  private cloudMat: ShaderMaterial | null = null
 
   /*
     Dynamic resolution. Full pixel ratio when the picture is calm, dropped to 1
@@ -403,10 +404,7 @@ export class EarthScene {
     const landMap = extractChannel(landBm, 'r')
     const borderMap = extractChannel(borderBm, 'r')
     const cloudMap = cloudBm ? extractChannel(cloudBm, 'r') : null
-    if (cloudMap) {
-      cloudMap.wrapS = RepeatWrapping
-      cloudMap.anisotropy = 4
-    }
+    if (cloudMap) cloudMap.wrapS = RepeatWrapping
 
     const maxAniso = this.renderer.capabilities.getMaxAnisotropy()
     /*
@@ -420,6 +418,14 @@ export class EarthScene {
     lightsMap.anisotropy = Math.min(maxAniso, 8)
     landMap.anisotropy = Math.min(maxAniso, 8)
     borderMap.anisotropy = Math.min(maxAniso, 8)
+    /* The shell carries the clouds now, seen at the same glancing angles as
+       the rest of the surface, so it earns the same level. */
+    if (cloudMap) cloudMap.anisotropy = Math.min(maxAniso, 8)
+
+    /* One noise tile serves both materials: the earth's sea state and the
+       shell's edge grain. It is generated, so two copies would be identical
+       bytes in memory twice. */
+    const noiseTex = makeNoiseTexture()
 
     const earthMat = new ShaderMaterial({
         uniforms: {
@@ -442,8 +448,8 @@ export class EarthScene {
             as the ball arrives.
           */
           uDark: { value: 0 },
-          uNoise: { value: makeNoiseTexture() },
-          uClouds: { value: cloudMap ?? makeNoiseTexture() },
+          uNoise: { value: noiseTex },
+          uClouds: { value: cloudMap ?? noiseTex },
           uCloudAmt: { value: cloudMap ? 1 : 0 },
           uCloudShift: { value: 0 },
         },
@@ -454,6 +460,36 @@ export class EarthScene {
 
     const earth = new Mesh(new SphereGeometry(EARTH_R, 128, 96), earthMat)
     this.world.add(earth)
+
+    if (cloudMap) {
+      /*
+        The cloud deck: see cloudShader for why it is a separate sphere. The
+        0.6% lift is real altitude, about 40 km at earth scale, exaggerated
+        just enough to buy visible parallax at the limb without opening a gap
+        between a cloud and the shadow it casts. No depth write: the deck is
+        translucent and everything above it (arcs, pulses) sorts explicitly.
+      */
+      this.cloudMat = new ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: {
+          uClouds: { value: cloudMap },
+          uNoise: { value: noiseTex },
+          uSun: { value: SUN.clone() },
+          uCloudShift: { value: 0 },
+          uCloudAmt: { value: 1 },
+        },
+        vertexShader: cloudShader.vertexShader,
+        fragmentShader: cloudShader.fragmentShader,
+      })
+      /* Fewer segments than the earth: the fresnel fade hides the shell's
+         silhouette, which is the only place tessellation would show. */
+      const shell = new Mesh(new SphereGeometry(EARTH_R * 1.006, 96, 72), this.cloudMat)
+      /* After the halo (0), before the arcs and pulses: routes fly above
+         the weather. Explicit, because all four share a sort depth. */
+      shell.renderOrder = 1
+      this.world.add(shell)
+    }
 
     this.buildMarkersAndArcs()
 
@@ -537,6 +573,8 @@ export class EarthScene {
         tube,
         new MeshBasicMaterial({ vertexColors: true, transparent: true }),
       )
+      /* Above the cloud shell (renderOrder 1): routes fly over the weather. */
+      mesh.renderOrder = 2
       const total = tube.index ? tube.index.count : 0
       tube.setDrawRange(0, this.opts.motion ? 0 : total)
       this.arcs.push({ mesh, total, curve })
@@ -558,6 +596,7 @@ export class EarthScene {
           depthWrite: false,
         }),
       )
+      pulse.renderOrder = 3
       this.pulses.push({ mesh: pulse, curve, phase: this.pulses.length * 0.23 })
       this.world.add(pulse)
     }
@@ -680,9 +719,13 @@ export class EarthScene {
     this.applyVantage(rendered)
     if (this.earthMat) {
       this.earthMat.uniforms.uDark.value = this.settle
-      /* Cloud drift, only while the hero is already rendering frames. */
+      /* Cloud drift, only while the hero is already rendering frames. One
+         value into both materials, so the deck and the shadow it casts on
+         the ground below can never slide apart. */
       if (this.opts.motion && this.settle < 0.999) {
-        this.earthMat.uniforms.uCloudShift.value += dt * 0.00055
+        const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.00055
+        this.earthMat.uniforms.uCloudShift.value = shift
+        if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
       }
     }
 

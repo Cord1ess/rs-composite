@@ -12,7 +12,8 @@
  *   public/textures/earth-day-hi.webp   6144x3072 colour
  *   public/textures/earth-day-lo.webp   4096x2048, for GPUs capped at 4096
  *   public/textures/earth-night.webp    2048x1024 city lights
- *   public/textures/clouds.webp         2560x1280 greyscale, used as an alphaMap
+ *   public/textures/clouds.webp         2560x1280 greyscale coverage for the
+ *                                       cloud shell, detail enhanced at bake
  *   public/textures/galaxy.webp/.avif   1376x768 deep space plate, from the
  *                                       supplied Galaxy BG.png in the repo root
  *
@@ -70,8 +71,8 @@ const SIZES = {
   /* Thin lines on black. Needs the resolution to stay crisp, but compresses
      almost to nothing because the rest of the frame is empty. */
   borders: [4096, 2048],
-  /* One greyscale channel at low opacity in the shader; 2048 is plenty for
-     a translucent layer. */
+  /* The shell's coverage channel. 2560 plus the fBm detail baked in by
+     cloudMask holds up at the entry crop; resolution alone did not. */
   clouds: [2560, 1280],
 }
 
@@ -388,12 +389,127 @@ if (existsSync(galaxySrc)) {
   console.log('  Galaxy BG.png not found in the repo root, skipped')
 }
 
+/*
+  The cloud coverage, enhanced at bake time.
+
+  The NASA composite is real weather, which is why its large shapes are right,
+  but at 2560 wide its edges are soft and its interiors flat, and on the cloud
+  shell that read as a wrapped sheet. Two fixes, both baked here so they cost
+  the runtime nothing:
+
+    domain warp   the source is resampled through a low frequency warp field,
+                  which curls every straight satellite-blurred edge the way
+                  shear actually deforms a cloud bank
+    fBm detail    value noise fBm, pulled through the same warp so it marbles
+                  instead of tiling, added only where the map is mid grey. The
+                  cores and the clear sky are untouched, so every weather
+                  system keeps its identity; the edges pick up billow.
+
+  Every octave of both fields is periodic in x, so the seam where the map
+  wraps around the globe stays invisible.
+*/
+async function cloudMask(src, [w, h]) {
+  const base = await sharp(src)
+    .resize(w, h, { fit: 'fill' })
+    .removeAlpha()
+    .greyscale()
+    .raw()
+    .toBuffer()
+
+  /* Deterministic permutation, so the bake is reproducible run to run. */
+  let seed = 0x2f6e2b1
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return seed / 0x7fffffff
+  }
+  const p = Array.from({ length: 256 }, (_, i) => i)
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[p[i], p[j]] = [p[j], p[i]]
+  }
+  const perm = new Uint8Array(512)
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255]
+
+  const fade = (t) => t * t * (3 - 2 * t)
+  /* Value noise on an integer lattice, wrapped in x at `px` cells so every
+     octave tiles across the map seam. px never exceeds 256 here, so the
+     & 255 after the modulo is the identity, not a second wrap. */
+  const cell = (ix, iy, px) => perm[(perm[(((ix % px) + px) % px) & 255] + (iy & 255)) & 511] / 255
+  const vnoise = (x, y, px) => {
+    const ix = Math.floor(x)
+    const iy = Math.floor(y)
+    const u = fade(x - ix)
+    const v = fade(y - iy)
+    const a = cell(ix, iy, px)
+    const b = cell(ix + 1, iy, px)
+    const c = cell(ix, iy + 1, px)
+    const d = cell(ix + 1, iy + 1, px)
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+  }
+  /* u, v in map units. Octaves double from f0 cells across the width; half a
+     cell vertically per horizontal cell keeps them square on a 2:1 map. */
+  const fbm = (u, v, f0, oct, off) => {
+    let amp = 0.5
+    let sum = 0
+    let norm = 0
+    let f = f0
+    for (let o = 0; o < oct; o++) {
+      sum += amp * vnoise(u * f + off, v * f * 0.5 + off * 1.93, f)
+      norm += amp
+      amp *= 0.55
+      f *= 2
+    }
+    return sum / norm
+  }
+
+  /* Bilinear read of the source, wrapping in x, so the warp can pull from
+     across the seam without a discontinuity. */
+  const tap = (u, v) => {
+    const x = (u - Math.floor(u)) * w
+    const y = Math.min(Math.max(v * h, 0), h - 1.001)
+    const x0 = Math.floor(x) % w
+    const y0 = Math.floor(y)
+    const x1 = (x0 + 1) % w
+    const y1 = Math.min(y0 + 1, h - 1)
+    const fx = x - Math.floor(x)
+    const fy = y - y0
+    const a = base[y0 * w + x0]
+    const b = base[y0 * w + x1]
+    const c = base[y1 * w + x0]
+    const d = base[y1 * w + x1]
+    return (a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy) / 255
+  }
+
+  const out = Buffer.alloc(w * h)
+  for (let yp = 0; yp < h; yp++) {
+    const v = (yp + 0.5) / h
+    for (let xp = 0; xp < w; xp++) {
+      const u = (xp + 0.5) / w
+      /* The warp field. Low frequency, because shear is a large scale force:
+         a high frequency warp reads as jitter, not weather. */
+      const wx = fbm(u, v, 6, 3, 41.7) - 0.5
+      const wy = fbm(u, v, 6, 3, 17.3) - 0.5
+      /* The source, pulled through a small warp: enough to curl an edge,
+         never enough to move a weather system off its geography. */
+      const bn = tap(u + wx * 0.006, v + wy * 0.006)
+      /* The billow, through a warp eight times stronger, which is what makes
+         it marble rather than sit on the map as a regular grain. */
+      const dn = fbm(u + wx * 0.05, v + wy * 0.05, 8, 6, 0)
+      /* Mid grey mask: detail lives on the edges of the systems, peaking at
+         50% coverage and vanishing in solid cores and clear sky. */
+      const edge = bn * (1 - bn) * 4
+      out[yp * w + xp] = clamp((bn + (dn - 0.5) * 0.34 * edge) * 255)
+    }
+  }
+
+  /* Same density curve the flat bake used: crush the thin haze, keep cores. */
+  return () => sharp(out, { raw: { width: w, height: h, channels: 1 } }).linear(1.55, -28)
+}
+
 console.log('Cloud layer')
 const cloud = await grab(SETS.clouds, 'try')
-used.push(['clouds.webp', cloud.licence, cloud.url])
-await write('clouds.webp', cloud.buf, SIZES.clouds, (p) =>
-  p.removeAlpha().greyscale().linear(1.55, -28).webp({ quality: 58, effort: 6 }),
-)
+used.push(['clouds.webp', `${cloud.licence}, edges detail enhanced at bake`, cloud.url])
+await writeGraded('clouds.webp', await cloudMask(cloud.buf, SIZES.clouds), 58)
 
 console.log('Tour panorama')
 const tour = await grab(SETS.tour, 'try')

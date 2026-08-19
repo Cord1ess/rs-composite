@@ -272,11 +272,11 @@ export const TOUR_SPIN = 0.042
 export const RESUME_AFTER = 3.5
 
 /*
-  The cloud layer, the audit's one taste call. A single greyscale tap at low
-  opacity in the same shader: no second sphere, no sorting. Clouds catch the
-  sun on the day side, ghost faintly at night and drift slowly against the
-  surface while the hero loop is already rendering. Flip this flag to render
-  a bare planet again; the texture simply is not fetched.
+  The cloud layer: a translucent shell riding 0.6% above the surface, plus one
+  tap in the earth shader that casts the deck's shadow onto the day side and
+  covers the city lights at night. Drift is hero-only, while the loop renders
+  anyway. Flip this flag to render a bare planet again: the texture is not
+  fetched, the shell is never built and the shadow term multiplies to zero.
 */
 export const CLOUDS = true
 
