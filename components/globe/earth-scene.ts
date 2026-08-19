@@ -149,6 +149,14 @@ export class EarthScene {
   */
   private frameEma = 16
   private slowFor = 0
+  /* The ladder's way back up. Sticky-down was the right anti-thrash call,
+     but a laptop that briefly thermal-throttled stayed degraded until
+     reload. After 30 s of sustained fast frames at a reduced tier, one
+     step up is probed; if the probe window sees slow frames the step
+     reverts and the ladder locks for the session. */
+  private fastFor = 0
+  private probing = 0
+  private probeLocked = false
 
   /*
     Idle skip. Once the showcase has settled nothing on screen changes, but the
@@ -723,6 +731,42 @@ export class EarthScene {
         }
       } else if (this.slowFor > 0) {
         this.slowFor = 0
+      }
+    }
+
+    /* The recovery probe: see the field block. Runs only while degraded,
+       at the high tier, and never again after one failed attempt. */
+    const dprCap = Math.min(this.opts.dpr, 2)
+    if (!this.probeLocked && this.dprHigh < dprCap && this.dprCurrent === this.dprHigh) {
+      if (this.probing > 0) {
+        this.probing -= dt
+        if (this.frameEma > 19) {
+          /* The probe failed: revert the step, lock for the session. */
+          this.dprHigh = Math.max(1.25, this.dprHigh - 0.375)
+          this.probeLocked = true
+          this.probing = 0
+          this.frameEma = 16
+          this.dprCurrent = this.dprHigh
+          this.renderer.setPixelRatio(this.dprHigh)
+          this.renderer.setSize(this.size.x, this.size.y, false)
+          this.needsDraw = true
+        }
+        /* Window survived: the step stands, and fastFor accumulates again
+           toward the next rung if there is one. */
+      } else if (this.frameEma < 12) {
+        this.fastFor += dt
+        if (this.fastFor > 30) {
+          this.dprHigh = Math.min(dprCap, this.dprHigh + 0.375)
+          this.fastFor = 0
+          this.probing = 3
+          this.frameEma = 16
+          this.dprCurrent = this.dprHigh
+          this.renderer.setPixelRatio(this.dprHigh)
+          this.renderer.setSize(this.size.x, this.size.y, false)
+          this.needsDraw = true
+        }
+      } else {
+        this.fastFor = 0
       }
     }
 
