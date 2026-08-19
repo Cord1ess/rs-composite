@@ -11,3 +11,4 @@ next-env.d.ts
 
 # Scraped copy of the old site, source material only
 RS_web_scrap/
+tests/output/

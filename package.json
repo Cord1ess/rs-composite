@@ -10,7 +10,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint && node scripts/lint-shaders.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "node scripts/verify-globe.mjs",
+    "verify:golden": "node scripts/verify-globe.mjs --golden"
   },
   "dependencies": {
     "next": "^15.5.4",
@@ -26,6 +28,8 @@
     "autoprefixer": "^10.4.20",
     "d3-geo": "^3.1.1",
     "postcss": "^8.4.49",
+    "puppeteer-core": "^25.4.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "topojson-client": "^3.1.0",
     "typescript": "^5.7.0",
