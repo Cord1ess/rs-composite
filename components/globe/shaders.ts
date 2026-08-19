@@ -67,12 +67,17 @@ export const haloShader = {
             float a = ring * lit * (0.45 + 1.9 * sidew);
             a += band * lit * (0.08 + 0.55 * sidew * max(side, 0.0));
 
-            /* The spark. Centred just past the limb (the plane sits behind
-               the sphere, which occludes it to about d 1.01), so the planet
-               cuts its lower half: the source is BEHIND the edge. */
-            vec2 rel = vPos - uSunDir * 1.02;
+            /* The spark: not a ball of light, a crescent of overexposure
+               pressed against the edge. An isotropic heart read as a disc
+               hovering over the planet; this one is elongated along the
+               limb and shallow radially, centred nearly on the edge with
+               its lower half depth-cut by the sphere, so what survives is
+               the edge itself burning where the source sits behind it. */
+            vec2 rel = vPos - uSunDir * 1.015;
+            float tang = dot(rel, vec2(-uSunDir.y, uSunDir.x));
+            float radial = dot(rel, uSunDir);
             float r2 = dot(rel, rel);
-            float heart = 3.5 * exp(-r2 * 220.0);
+            float heart = 3.0 * exp(-(tang * tang * 90.0 + radial * radial * 520.0));
             float bleed = 1.6 / (1.0 + r2 * 55.0);
             a += heart + bleed;
 
@@ -102,12 +107,14 @@ export const haloShader = {
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
 
-            /* The heart is pure white and the bleed carries that white out
-               with it, decaying into the blue of the air; the line whitens
-               where the source sits behind it. Neutral white, not warm: the
+            /* One rule for colour: whatever is bright is white, whatever is
+               dim is air. Tying the whitening directly to the summed
+               intensity means colour and brightness fall away TOGETHER;
+               the old independent mix let the glow pass through a distinct
+               blue zone while still bright, which drew a ring around the
+               spark and read as a hollow. Neutral white, never warm: the
                cyan-to-warm blend passes through green at half strength. */
-            vec3 col = mix(atmoCol, vec3(1.0),
-              clamp(heart + bleed * 0.85 + ring * sidew * 0.35, 0.0, 0.97));
+            vec3 col = mix(atmoCol, vec3(1.0), clamp(a * 0.5, 0.0, 0.97));
 
             /*
               Dither. A smooth dark green gradient over this much screen bands
