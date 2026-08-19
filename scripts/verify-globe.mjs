@@ -76,7 +76,18 @@ async function capture(view) {
       localStorage.setItem('earth-tune-v1', JSON.stringify({ $tourSpin: 0, $cloudLag: 0 }))
     })
     await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 60000 })
-    await new Promise((r) => setTimeout(r, 12000))
+    /* Anchor on the reveal, not the clock: the loading screen locks page
+       scroll while it covers the hero and releases it when the curtain
+       lifts. A flat wait raced dev-server compiles and caught mid-entrance
+       frames; this waits out any compile, then gives the entrance and the
+       arc draw-in a fixed settle. */
+    await page.waitForFunction(
+      () =>
+        document.querySelector('canvas') &&
+        document.documentElement.style.overflow !== 'hidden',
+      { timeout: 60000 },
+    )
+    await new Promise((r) => setTimeout(r, 8000))
     if (view.scroll > 0) {
       await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'instant' }), view.scroll)
       await new Promise((r) => setTimeout(r, 2500))

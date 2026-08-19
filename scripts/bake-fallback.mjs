@@ -38,7 +38,14 @@ await page.goto(process.env.GLOBE_URL ?? 'http://localhost:3000', {
   waitUntil: 'networkidle2',
   timeout: 60000,
 })
-await new Promise((r) => setTimeout(r, 12000))
+/* Same reveal-anchored wait as the verify harness: immune to dev-server
+   compile latency. */
+await page.waitForFunction(
+  () =>
+    document.querySelector('canvas') && document.documentElement.style.overflow !== 'hidden',
+  { timeout: 60000 },
+)
+await new Promise((r) => setTimeout(r, 8000))
 
 await page.evaluate(() => {
   const hide = (el) => {
