@@ -72,6 +72,9 @@ ctx.onmessage = (event) => {
       if (msg.running) scene?.start()
       else scene?.stop()
       break
+    case 'tune':
+      scene?.setTune(msg.values)
+      break
     case 'dispose':
       scene?.dispose()
       scene = null

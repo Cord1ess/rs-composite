@@ -16,6 +16,7 @@ import {
   AdditiveBlending,
   BufferAttribute,
   CatmullRomCurve3,
+  type Color,
   Group,
   MathUtils,
   Mesh,
@@ -35,7 +36,6 @@ import {
   ATMO,
   CAM_FOV,
   CAM_Z,
-  CITY,
   CLOUDS,
   CROP_ENTRY,
   CROP_ENTRY_NARROW,
@@ -45,23 +45,27 @@ import {
   ENTRY,
   ENTRY_DROP,
   FRAME_H,
-  GLINT,
-  LAND,
   MARKER_R,
-  OCEAN,
   pathLat,
-  RESUME_AFTER,
   SEEK_MAX,
   SEEK_RATE,
   SHOWCASE,
   shortestAngle,
-  SUN,
-  TOUR_SPIN,
   toVector,
   vantageDip,
 } from './config'
 import { extractChannel, fetchBitmap, makeNoiseTexture } from './textures'
 import { cloudShader, earthShader, haloShader } from './shaders'
+import { TUNE } from './tune'
+
+/* Uniform builders over the tuning schema: every former shader literal is
+   initialised from tune.ts, so the dev panel, the shipped values and the
+   shaders can never disagree. */
+const TF = (key: string) => ({ value: TUNE[key] as number })
+const TV = (key: string) => {
+  const v = TUNE[key] as [number, number, number]
+  return { value: new Vector3(v[0], v[1], v[2]) }
+}
 
 export type ScenePlace = { id: string; lon: number; lat: number }
 
@@ -121,6 +125,21 @@ export class EarthScene {
   private dragInShowcase = false
   private earthMat: ShaderMaterial | null = null
   private cloudMat: ShaderMaterial | null = null
+  private haloMat: ShaderMaterial | null = null
+  private glowMesh: Mesh | null = null
+  private running = false
+
+  /* Live-tunable scene parameters, seeded from tune.ts. sunRaw keeps the
+     panel's unnormalised slider values; sun is what the shaders see. */
+  private sunRaw = new Vector3(
+    TUNE.$sunX as number,
+    TUNE.$sunY as number,
+    TUNE.$sunZ as number,
+  )
+  private sun = this.sunRaw.clone().normalize()
+  private tourSpin = TUNE.$tourSpin as number
+  private cloudLag = TUNE.$cloudLag as number
+  private resumeAfter = TUNE.$resumeAfter as number
 
   /*
     Dynamic resolution. Full pixel ratio when the picture is calm, dropped to 1
@@ -347,26 +366,48 @@ export class EarthScene {
       fragments are a dozen ALU ops and one blend each, no texture taps.
     */
     const half = 2.5
-    const glow = new Mesh(
-      new PlaneGeometry(half * 2, half * 2),
-      new ShaderMaterial({
-        transparent: true,
-        /* Normal alpha blending, deliberately not additive: additive blue
-           over the backdrop's warm nebula regions can only sum to violet,
-           which was the purple halo, unfixable by hue tuning. Painting the
-           air's own colour over the backdrop cannot. */
-        depthWrite: false,
-        depthTest: true,
-        uniforms: {
-          uColor: { value: ATMO.clone() },
-          /* The sun's direction in screen space. The camera never moves, so
-             this is a constant. */
-          uSunDir: { value: new Vector2(SUN.x, SUN.y).normalize() },
-        },
-        vertexShader: haloShader.vertexShader,
-        fragmentShader: haloShader.fragmentShader,
-      }),
-    )
+    this.haloMat = new ShaderMaterial({
+      transparent: true,
+      /* Normal alpha blending, deliberately not additive: additive blue
+         over the backdrop's warm nebula regions can only sum to violet,
+         which was the purple halo, unfixable by hue tuning. Painting the
+         air's own colour over the backdrop cannot. */
+      depthWrite: false,
+      depthTest: true,
+      uniforms: {
+        uColor: { value: ATMO.clone() },
+        /* The sun's direction in screen space. The camera never moves, so
+           this only changes when the panel retunes the sun. */
+        uSunDir: { value: new Vector2(this.sun.x, this.sun.y).normalize() },
+        uShellStr: TF('uShellStr'),
+        uShellFall: TF('uShellFall'),
+        uLitLo: TF('uLitLo'),
+        uLitHi: TF('uLitHi'),
+        uSideExp: TF('uSideExp'),
+        uRingEdge: TF('uRingEdge'),
+        uRingBase: TF('uRingBase'),
+        uRingGain: TF('uRingGain'),
+        uBandFall: TF('uBandFall'),
+        uBandBase: TF('uBandBase'),
+        uBandGain: TF('uBandGain'),
+        uSparkPos: TF('uSparkPos'),
+        uHeartAmp: TF('uHeartAmp'),
+        uHeartTang: TF('uHeartTang'),
+        uHeartRad: TF('uHeartRad'),
+        uBleedAmp: TF('uBleedAmp'),
+        uBleedK: TF('uBleedK'),
+        uWinLo: TF('uWinLo'),
+        uWinHi: TF('uWinHi'),
+        uCompress: TF('uCompress'),
+        uWhiteCurve: TF('uWhiteCurve'),
+        uHaloDeep: TV('uHaloDeep'),
+        uHaloPale: TV('uHaloPale'),
+        uPaleMix: TF('uPaleMix'),
+      },
+      vertexShader: haloShader.vertexShader,
+      fragmentShader: haloShader.fragmentShader,
+    })
+    const glow = new Mesh(new PlaneGeometry(half * 2, half * 2), this.haloMat)
     /*
       Close behind the limb, not far behind. The sphere occludes this plane
       past the silhouette by an overhang that grows with both the z gap and
@@ -377,7 +418,8 @@ export class EarthScene {
       front near the limb), and the sun point crests the edge in the hero
       exactly as it does in the showcase.
     */
-    glow.position.z = -0.02
+    glow.position.z = TUNE.$haloZ as number
+    this.glowMesh = glow
     this.root.add(glow)
   }
 
@@ -455,15 +497,58 @@ export class EarthScene {
           uLights: { value: lightsMap },
           uLand: { value: landMap },
           uBorders: { value: borderMap },
-          uSun: { value: SUN.clone() },
-          uOcean: { value: OCEAN.clone() },
-          uLandCol: { value: LAND.clone() },
-          uAtmo: { value: new Vector3(ATMO.r, ATMO.g, ATMO.b) },
-          uGlint: { value: GLINT.clone() },
-          uCity: { value: CITY.clone() },
+          uSun: { value: this.sun.clone() },
+          uOcean: TV('uOcean'),
+          uLandCol: TV('uLandCol'),
+          uAtmo: TV('uAtmo'),
+          uGlint: TV('uGlint'),
+          uCity: TV('uCity'),
           /* Bright shallow water, the top of the depth ramp. */
-          uShallow: { value: new Vector3(0.05, 0.18, 0.34) },
+          uShallow: TV('uShallow'),
           uLandTexel: { value: new Vector2(1 / 5120, 1 / 2560) },
+          uTermLo: TF('uTermLo'),
+          uTermHi: TF('uTermHi'),
+          uSunGain: TF('uSunGain'),
+          uSunExp: TF('uSunExp'),
+          uAmbHero: TF('uAmbHero'),
+          uAmbDark: TF('uAmbDark'),
+          uDuskTint: TV('uDuskTint'),
+          uNightFloor: TF('uNightFloor'),
+          uNightFloorDark: TF('uNightFloorDark'),
+          uShoreNight: TF('uShoreNight'),
+          uLimbDark: TF('uLimbDark'),
+          uShelfExp: TF('uShelfExp'),
+          uDeepMul: TF('uDeepMul'),
+          uWaveBase: TF('uWaveBase'),
+          uWaveAmp: TF('uWaveAmp'),
+          uShoreGlow: TF('uShoreGlow'),
+          uCityGain: TF('uCityGain'),
+          uCityThLo: TF('uCityThLo'),
+          uCityThHi: TF('uCityThHi'),
+          uHazeGain: TF('uHazeGain'),
+          uBorderLit: TF('uBorderLit'),
+          uBorderDay: TF('uBorderDay'),
+          uGlintExp: TF('uGlintExp'),
+          uLaneTight: TF('uLaneTight'),
+          uGlintFresW: TF('uGlintFresW'),
+          uGlintBase: TF('uGlintBase'),
+          uGlintGain: TF('uGlintGain'),
+          uGlintShelf: TF('uGlintShelf'),
+          uRimPow: TF('uRimPow'),
+          uRimGain: TF('uRimGain'),
+          uHazePow: TF('uHazePow'),
+          uHazeAmt: TF('uHazeAmt'),
+          uRimSunLo: TF('uRimSunLo'),
+          uRimSunGain: TF('uRimSunGain'),
+          uRimWhite: TF('uRimWhite'),
+          uShOffX: TF('uShOffX'),
+          uShOffY: TF('uShOffY'),
+          uShMip: TF('uShMip'),
+          uShLo: TF('uShLo'),
+          uShHi: TF('uShHi'),
+          uShStr: TF('uShStr'),
+          uShCity: TF('uShCity'),
+          uShGlint: TF('uShGlint'),
           /*
             0 in the hero, 1 once settled into the section under it, riding the
             scroll settle. The cinematic entry wants a readable night side; the
@@ -473,7 +558,7 @@ export class EarthScene {
           uDark: { value: 0 },
           uNoise: { value: noiseTex },
           uClouds: { value: cloudMap ?? noiseTex },
-          uCloudAmt: { value: cloudMap ? 1 : 0 },
+          uCloudAmt: { value: cloudMap ? (TUNE.uCloudAmt as number) : 0 },
           uCloudShift: { value: 0 },
         },
         vertexShader: earthShader.vertexShader,
@@ -498,9 +583,48 @@ export class EarthScene {
         uniforms: {
           uClouds: { value: cloudMap },
           uNoise: { value: noiseTex },
-          uSun: { value: SUN.clone() },
+          uSun: { value: this.sun.clone() },
           uCloudShift: { value: 0 },
-          uCloudAmt: { value: 1 },
+          uCloudAmt: TF('uCloudAmt'),
+          uTermLo: TF('uTermLo'),
+          uTermHi: TF('uTermHi'),
+          uDeckLo: TF('uDeckLo'),
+          uDeckGrain: TF('uDeckGrain'),
+          uDeckHi: TF('uDeckHi'),
+          uCoreLo: TF('uCoreLo'),
+          uCoreHi: TF('uCoreHi'),
+          uVeilLo: TF('uVeilLo'),
+          uVeilHi: TF('uVeilHi'),
+          uVeilEnvLo: TF('uVeilEnvLo'),
+          uVeilEnvHi: TF('uVeilEnvHi'),
+          uVeilAlpha: TF('uVeilAlpha'),
+          uVeilSupp: TF('uVeilSupp'),
+          uVeilColMix: TF('uVeilColMix'),
+          uToneBase: TF('uToneBase'),
+          uToneDeck: TF('uToneDeck'),
+          uToneCore: TF('uToneCore'),
+          uCloudWhite: TV('uCloudWhite'),
+          uCloudGain: TF('uCloudGain'),
+          uCloudExp: TF('uCloudExp'),
+          uTopBase: TF('uTopBase'),
+          uTopGain: TF('uTopGain'),
+          uShadeGain: TF('uShadeGain'),
+          uShadeBase: TF('uShadeBase'),
+          uShadeCore: TF('uShadeCore'),
+          uCShOffX: TF('uCShOffX'),
+          uCShOffY: TF('uCShOffY'),
+          uCloudAmb: TV('uCloudAmb'),
+          uCAmbBase: TF('uCAmbBase'),
+          uCAmbNight: TF('uCAmbNight'),
+          uVeilCol: TV('uVeilCol'),
+          uVeilColBase: TF('uVeilColBase'),
+          uVeilColGain: TF('uVeilColGain'),
+          uCFresLo: TF('uCFresLo'),
+          uCFresHi: TF('uCFresHi'),
+          uCNightAlpha: TF('uCNightAlpha'),
+          uParDeck: TF('uParDeck'),
+          uParVeil: TF('uParVeil'),
+          uCLimbDark: TF('uCLimbDark'),
         },
         vertexShader: cloudShader.vertexShader,
         fragmentShader: cloudShader.fragmentShader,
@@ -686,7 +810,7 @@ export class EarthScene {
       this.idleFor += dt
 
       /* A finished drag settles back to the resting spot after the delay. */
-      if (this.pendingReturn && this.idleFor > RESUME_AFTER) {
+      if (this.pendingReturn && this.idleFor > this.resumeAfter) {
         this.pendingReturn = false
         this.returning = true
       }
@@ -722,10 +846,11 @@ export class EarthScene {
           if (this.seek(MathUtils.degToRad(ENTRY.spin), dt) && this.settle === 0) {
             this.returning = false
             /* Fade the tour back in from zero rather than jumping to speed. */
-            this.idleFor = RESUME_AFTER
+            this.idleFor = this.resumeAfter
           }
         } else if (this.opts.motion && !this.pendingReturn && this.settle === 0) {
-          this.spin += TOUR_SPIN * MathUtils.clamp((this.idleFor - RESUME_AFTER) / 1.5, 0, 1) * dt
+          this.spin +=
+            this.tourSpin * MathUtils.clamp((this.idleFor - this.resumeAfter) / 1.5, 0, 1) * dt
         }
       }
     }
@@ -769,12 +894,11 @@ export class EarthScene {
         const resting =
           !this.dragging && !this.pendingReturn && !this.returning && this.settle === 0
         const ramp = resting
-          ? MathUtils.clamp((this.idleFor - RESUME_AFTER) / 1.5, 0, 1)
+          ? MathUtils.clamp((this.idleFor - this.resumeAfter) / 1.5, 0, 1)
           : 1
-        const LAG = 0.15
         const shift =
           this.earthMat.uniforms.uCloudShift.value +
-          dt * ramp * ((TOUR_SPIN * LAG) / (2 * Math.PI))
+          dt * ramp * ((this.tourSpin * this.cloudLag) / (2 * Math.PI))
         this.earthMat.uniforms.uCloudShift.value = shift
         if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
         this.needsDraw = true
@@ -937,11 +1061,70 @@ export class EarthScene {
 
   start() {
     this.lastTime = 0
+    this.running = true
     this.renderer.setAnimationLoop(this.frame)
   }
 
   stop() {
+    this.running = false
     this.renderer.setAnimationLoop(null)
+  }
+
+  /*
+    The live tuning channel. Values come from the dev panel (tune.ts holds
+    the schema and the shipped defaults), keyed by uniform name and applied
+    to whichever of the three materials declares that uniform; $-keys are
+    scene-level. Renders immediately when the loop is parked, so a slider
+    is realtime even under reduced motion or before the reveal.
+  */
+  setTune(values: Record<string, number | [number, number, number]>) {
+    const mats = [this.earthMat, this.cloudMat, this.haloMat]
+    for (const [key, val] of Object.entries(values)) {
+      if (key.startsWith('$')) {
+        if (key === '$haloZ' && this.glowMesh) this.glowMesh.position.z = val as number
+        else if (key === '$tourSpin') this.tourSpin = val as number
+        else if (key === '$cloudLag') this.cloudLag = val as number
+        else if (key === '$resumeAfter') this.resumeAfter = val as number
+        else if (key === '$sunX' || key === '$sunY' || key === '$sunZ') {
+          if (key === '$sunX') this.sunRaw.x = val as number
+          else if (key === '$sunY') this.sunRaw.y = val as number
+          else this.sunRaw.z = val as number
+          this.sun.copy(this.sunRaw).normalize()
+          for (const mat of [this.earthMat, this.cloudMat]) {
+            const u = mat?.uniforms.uSun
+            if (u) (u.value as Vector3).copy(this.sun)
+          }
+          const dir = this.haloMat?.uniforms.uSunDir
+          if (dir) (dir.value as Vector2).set(this.sun.x, this.sun.y).normalize()
+        }
+        continue
+      }
+      for (const mat of mats) {
+        const u = mat?.uniforms[key]
+        if (!u) continue
+        if (Array.isArray(val)) {
+          const t = u.value as {
+            isVector3?: boolean
+            set: (x: number, y: number, z: number) => unknown
+            setRGB?: (r: number, g: number, b: number) => unknown
+          }
+          if (t.isVector3) t.set(val[0], val[1], val[2])
+          else t.setRGB?.(val[0], val[1], val[2])
+        } else {
+          u.value = val
+        }
+      }
+      /* The halo names the atmosphere colour uColor; keep it in sync with
+         the earth's uAtmo so one slider moves both. */
+      if (key === 'uAtmo' && this.haloMat && Array.isArray(val)) {
+        ;(this.haloMat.uniforms.uColor.value as Color).setRGB(val[0], val[1], val[2])
+      }
+    }
+    this.needsDraw = true
+    if (!this.running && this.earthMat) {
+      this.renderer.render(this.scene, this.camera)
+      this.reportMarkers()
+    }
   }
 
   dispose() {

@@ -22,6 +22,7 @@ export type ToWorker =
   | { type: 'size'; width: number; height: number }
   | { type: 'pointer'; phase: 'down' | 'move' | 'up'; x: number }
   | { type: 'run'; running: boolean }
+  | { type: 'tune'; values: Record<string, number | [number, number, number]> }
   | { type: 'dispose' }
 
 export type FromWorker =

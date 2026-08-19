@@ -1,4 +1,5 @@
 import { preload } from 'react-dom'
+import TunePanel from '@/components/dev/TunePanel'
 import { Hero } from '@/components/hero/Hero'
 import { Facts } from '@/components/sections/Facts'
 import {
@@ -37,6 +38,9 @@ export default function HomePage() {
       <People />
       <Quote />
       <CertificationsSection />
+      {/* Dev-only earth tuning surface; renders nothing in production
+          unless the URL carries ?tune. */}
+      <TunePanel />
     </>
   )
 }

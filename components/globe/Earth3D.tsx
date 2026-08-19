@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn'
 import { places } from '@/content/globe'
 import { heroProgress } from '@/lib/scroll-progress'
 import { heroEntranceGate, markHeroReady, reportHeroLoad } from '@/lib/hero-loader'
+import { registerTuner, type TuneValues } from '@/lib/tune-bus'
 import type { MarkerFrame } from './earth-scene'
 import type { FromWorker, ToWorker } from './protocol'
 
@@ -58,6 +59,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
       setSize(width: number, height: number): void
       run(running: boolean): void
       pointer(phase: 'down' | 'move' | 'up', x: number): void
+      tune(values: TuneValues): void
       dispose(): void
     }
     let handle: Handle | null = null
@@ -216,6 +218,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
         setSize: (width, height) => worker.postMessage({ type: 'size', width, height }),
         run: (running) => worker.postMessage({ type: 'run', running }),
         pointer: (phase, x) => worker.postMessage({ type: 'pointer', phase, x }),
+        tune: (values) => worker.postMessage({ type: 'tune', values }),
         dispose: () => {
           unsubscribe()
           /* Delayed so a strict mode replay can cancel it and reuse the
@@ -227,6 +230,9 @@ export default function Earth3D({ motion }: { motion: boolean }) {
           }, 1000)
         },
       }
+      /* The dev tuning panel reaches the scene through the bus; any values
+         it sent before this point replay now. */
+      registerTuner(handle.tune)
     } else {
       import('./earth-scene').then(({ EarthScene: Ctor }) => {
         if (cancelled) return
@@ -251,8 +257,10 @@ export default function Earth3D({ motion }: { motion: boolean }) {
             else if (phase === 'move') scene.pointerMove(x)
             else scene.pointerUp()
           },
+          tune: (values) => scene.setTune(values),
           dispose: () => scene.dispose(),
         }
+        registerTuner(handle.tune)
       })
     }
 
@@ -312,6 +320,7 @@ export default function Earth3D({ motion }: { motion: boolean }) {
 
     return () => {
       cancelled = true
+      registerTuner(null)
       unsubScrub?.()
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
