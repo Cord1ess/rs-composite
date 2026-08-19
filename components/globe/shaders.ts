@@ -41,22 +41,31 @@ export const haloShader = {
                              spark as far as the eye can follow it
             */
             float side = dot(nd, uSunDir);
-            float lit = smoothstep(-0.35, 0.55, side);
-            float sidew = pow(max(side, 0.0), 2.0);
+            /*
+              Concentration, after review with an annotated screenshot: the
+              old gate admitted everything within ~110 degrees of the
+              source azimuth, so in the entry framing the top-LEFT limb arc
+              glowed almost as brightly as the crest, reading as a glow
+              pasted on the wrong side of the planet. The edge glow now
+              lives within ~70 degrees of the crest, full only within ~30,
+              and what it lost in reach it gains in intensity: brighter,
+              bloomier, spreading further out exactly where the source is.
+            */
+            float lit = smoothstep(0.30, 0.85, side);
+            float sidew = pow(max(side, 0.0), 4.0);
 
             /* The atmosphere. All the silhouette definition the dark side
                gets, and all it needs. */
             float shell = exp(-max(d - 1.0, 0.0) * 9.0);
             float a = shell * 0.16;
 
-            /* The edge glow: line plus bloom. The bloom's falloff is half
-               as steep as the old one and its gain is up, so the lit edge
-               holds its intensity as it spreads instead of dying a step
-               past the line. */
+            /* The edge glow: line plus bloom, both hugging the crest. The
+               bloom's falloff is shallow so it takes real space around the
+               source before it lets go. */
             float ring = smoothstep(1.035, 1.0, d);
-            a += ring * lit * (0.5 + 1.6 * sidew);
-            float band = exp(-max(d - 1.0, 0.0) * 7.0);
-            a += band * lit * (0.14 + 0.85 * sidew);
+            a += ring * lit * (0.7 + 2.3 * sidew);
+            float band = exp(-max(d - 1.0, 0.0) * 4.5);
+            a += band * lit * (0.30 + 1.5 * sidew);
 
             /* The spark: tiny and blazing. The amplitude is deliberately
                far past saturation and the footprint far smaller than every
