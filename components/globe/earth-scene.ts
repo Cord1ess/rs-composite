@@ -720,17 +720,22 @@ export class EarthScene {
     if (this.earthMat) {
       this.earthMat.uniforms.uDark.value = this.settle
       /*
-        Cloud drift, hero only. Increasing the shift moves the deck AGAINST
-        the spin direction (verified against the sphere's u parametrisation:
-        a feature's azimuth is rendered + spin - 2 pi shift), so the weather
-        idles backwards around the planet, a lap every nine minutes or so:
-        visible against the ground without reading as time lapse. One value
-        into both materials, so the deck and the shadow it casts can never
-        slide apart, and the frame is marked dirty because the deck now
-        moves fast enough that freezing it through the post-drag hold would
-        show as a snap when the tour resumes.
+        Cloud drift, whenever motion is allowed at all. Increasing the shift
+        moves the deck AGAINST the spin direction (verified against the
+        sphere's u parametrisation: a feature's azimuth is rendered + spin -
+        2 pi shift), so the weather idles backwards around the planet, a lap
+        every nine minutes or so: visible against the ground without reading
+        as time lapse. One value into both materials, so the deck and the
+        shadow it casts can never slide apart, and the frame is marked dirty
+        so the drift can never freeze and snap.
+
+        This deliberately runs in the settled showcase too, which retires
+        the idle skip there: a planet whose weather stops moving the moment
+        the page settles reads as a paused video. The planet itself still
+        holds its pose; only the deck lives. Reduced motion keeps the full
+        idle skip.
       */
-      if (this.opts.motion && this.settle < 0.999) {
+      if (this.opts.motion) {
         const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.0018
         this.earthMat.uniforms.uCloudShift.value = shift
         if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift

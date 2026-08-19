@@ -31,11 +31,12 @@ export const haloShader = {
               survives, which is exactly the hard bright edge in the source.
             */
             float ring = smoothstep(1.03, 1.0, d);
-            /* A soft bloom past it, tight rather than a wide fog. Quieter in
-               its far tail than it was: the last few percent of alpha is where
-               the additive blend tinted the backdrop. */
-            float bloom = smoothstep(1.19, 0.995, d);
-            float a = ring * 1.6 + pow(bloom, 3.4) * 0.26;
+            /* A soft bloom past it, tight rather than a wide fog. Tightened
+               twice now: the far tail is where additive blue over the
+               backdrop's warm nebula regions manufactures purple, so the
+               tail gets steeper, shorter and quieter each time it shows. */
+            float bloom = smoothstep(1.14, 0.995, d);
+            float a = ring * 1.6 + pow(bloom, 4.0) * 0.22;
 
             /*
               Brightest on the side the sun is on, fading round the limb, rather
@@ -43,7 +44,10 @@ export const haloShader = {
               way round, and an even ring is the giveaway that it is a shader.
             */
             float side = dot(nd, uSunDir) * 0.5 + 0.5;
-            a *= mix(0.2, 1.0, pow(side, 1.6));
+            /* The anti-sun floor sits low: the night-side limb is where the
+               glow has nothing bright behind it and every stray photon of
+               additive blue lands on dark red nebula as violet. */
+            a *= mix(0.12, 1.0, pow(side, 1.6));
 
             /*
               The sunrise. A compact flare pinned to the limb where the sun
@@ -63,13 +67,15 @@ export const haloShader = {
               difference between a glow effect and an atmosphere.
             */
             /*
-              The pale stop stays inside the blue family: mixing toward pure
-              white lifted the red channel, and additive red-lifted light over
-              the backdrop's dark maroon nebula regions read as a purple halo.
-              Pale cyan blue keeps the thin-air read without ever leaving blue.
+              Both stops sit toward cyan-azure, red held right down. This is
+              the second pass at the purple halo: the first kept the pale
+              stop "inside the blue family" but left enough red (0.48 in
+              display terms at the deep stop) that the additive blend over
+              the backdrop's warm regions still read violet on real
+              hardware. Red is what makes additive blue go purple; starve it.
             */
-            vec3 deepBlue = uColor * vec3(0.52, 0.72, 1.0);
-            vec3 paleEdge = mix(uColor, vec3(0.62, 0.85, 1.0), 0.6);
+            vec3 deepBlue = uColor * vec3(0.34, 0.78, 1.0);
+            vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
 
             /* The line whitens toward the sun and the flare is nearly white,
@@ -84,7 +90,11 @@ export const haloShader = {
               amplitude well below anything the eye can see as noise.
             */
             float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-            a += (dn - 0.5) * 0.012;
+            /* Scaled by the alpha it is dithering. A constant amplitude put
+               noise over the whole quad, and because the negative half then
+               clipped at zero it net-ADDED a faint blue wash out to the
+               quad's edge: over the maroon nebula, a faint purple wash. */
+            a += (dn - 0.5) * min(0.012, a);
 
             gl_FragColor = vec4(col, clamp(a, 0.0, 2.0));
           }
@@ -522,13 +532,15 @@ export const cloudShader = {
             float a = clamp(deck + veil * 0.38, 0.0, 1.0) * uCloudAmt;
 
             /*
-              Fresnel thinning near the silhouette. Two jobs: it stops the
-              shell's own rim from stacking a second bright edge onto the
-              atmosphere halo, and it kills the polygonal cloud horizon a
-              translucent sphere would otherwise show against space. Gentle
-              and late, or the limb goes bald.
+              Fresnel fade at the silhouette, and it goes all the way to
+              zero: a partial fade left the deck's cutout edge floating over
+              the rim as a paper-thin white streak, which is the one place
+              the shell confesses it has no thickness. Full strength to 96%
+              of the disc radius, gone at the limb; the earlier bald-band
+              mistake was starting a deep fade at 79% of the radius, not
+              fading fully at the edge.
             */
-            a *= 1.0 - 0.6 * smoothstep(0.80, 0.995, fres);
+            a *= 1.0 - smoothstep(0.72, 0.96, fres);
 
             /* At night the deck is a ghost: barely lit, but still dense
                enough to sit visibly over the city lights. */
