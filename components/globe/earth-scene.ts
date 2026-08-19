@@ -188,13 +188,13 @@ export class EarthScene {
       canvas: opts.canvas,
       alpha: true,
       /*
-        MSAA only where the buffer is not already supersampled. On a retina
-        display the calm buffer runs at native 2x, and multisampling on top of
-        that pays twice for one smoothness: the scene's only hard geometric
-        edge is the limb, and the halo ring sits directly on it. At 1x there
-        is no supersampling to lean on, so MSAA stays.
+        Always on. The audit trialled MSAA-off on retina displays, reasoning
+        that a 2x buffer is already supersampled, and the headless check at a
+        steady 2x agreed. Real hardware disagreed: dynamic resolution and the
+        frame time governor spend much of their life below 2x, and there the
+        limb renders as a raw staircase. The trial is closed; smoothness wins.
       */
-      antialias: opts.dpr < 2,
+      antialias: true,
       /* Nothing here uses the stencil buffer; not allocating it saves memory
          bandwidth on every raster op. */
       stencil: false,

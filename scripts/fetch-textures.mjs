@@ -72,7 +72,7 @@ const SIZES = {
   borders: [4096, 2048],
   /* One greyscale channel at low opacity in the shader; 2048 is plenty for
      a translucent layer. */
-  clouds: [2048, 1024],
+  clouds: [2560, 1280],
 }
 
 const SETS = {
@@ -392,7 +392,7 @@ console.log('Cloud layer')
 const cloud = await grab(SETS.clouds, 'try')
 used.push(['clouds.webp', cloud.licence, cloud.url])
 await write('clouds.webp', cloud.buf, SIZES.clouds, (p) =>
-  p.removeAlpha().greyscale().webp({ quality: 55, effort: 6 }),
+  p.removeAlpha().greyscale().linear(1.55, -28).webp({ quality: 58, effort: 6 }),
 )
 
 console.log('Tour panorama')

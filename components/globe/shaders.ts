@@ -31,9 +31,11 @@ export const haloShader = {
               survives, which is exactly the hard bright edge in the source.
             */
             float ring = smoothstep(1.03, 1.0, d);
-            /* A soft bloom past it, tight rather than a wide fog. */
-            float bloom = smoothstep(1.22, 0.995, d);
-            float a = ring * 1.6 + pow(bloom, 3.0) * 0.30;
+            /* A soft bloom past it, tight rather than a wide fog. Quieter in
+               its far tail than it was: the last few percent of alpha is where
+               the additive blend tinted the backdrop. */
+            float bloom = smoothstep(1.19, 0.995, d);
+            float a = ring * 1.6 + pow(bloom, 3.4) * 0.26;
 
             /*
               Brightest on the side the sun is on, fading round the limb, rather
@@ -60,8 +62,14 @@ export const haloShader = {
               by distance replace the flat colour, which is most of the
               difference between a glow effect and an atmosphere.
             */
+            /*
+              The pale stop stays inside the blue family: mixing toward pure
+              white lifted the red channel, and additive red-lifted light over
+              the backdrop's dark maroon nebula regions read as a purple halo.
+              Pale cyan blue keeps the thin-air read without ever leaving blue.
+            */
             vec3 deepBlue = uColor * vec3(0.52, 0.72, 1.0);
-            vec3 paleEdge = mix(uColor, vec3(1.0), 0.55);
+            vec3 paleEdge = mix(uColor, vec3(0.62, 0.85, 1.0), 0.6);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
 
             /* The line whitens toward the sun and the flare is nearly white,
@@ -374,9 +382,24 @@ export const earthShader = {
               weather actually does. Drift comes through uCloudShift, driven
               only while the hero loop is rendering anyway.
             */
-            float cl = texture2D(uClouds, vec2(vUv.x + uCloudShift, vUv.y)).r;
-            vec3 cloudCol = vec3(0.72, 0.82, 0.96) * (0.10 + 1.1 * pow(clamp(sunDot, 0.0, 1.0), 1.1));
-            color = mix(color, cloudCol, cl * uCloudAmt * (0.07 + 0.38 * daylight));
+            /*
+              Two decks of the same map at different scales and drift rates,
+              so the cover has parallax and structure instead of reading as
+              one wrapped sheet. The density curve crushes thin haze and
+              solidifies the cores, and the relief term embosses each cloud
+              against its own shadowed side, which is what makes them read as
+              volumes rather than stains on the surface.
+            */
+            float clA = texture2D(uClouds, vec2(vUv.x + uCloudShift, vUv.y)).r;
+            float clB = texture2D(uClouds, vec2(vUv.x * 1.31 + 0.41 + uCloudShift * 1.7, vUv.y)).r;
+            float cover = max(clA, clB * 0.8);
+            cover = smoothstep(0.14, 0.72, cover);
+            float clShadow = texture2D(uClouds, vec2(vUv.x + uCloudShift + 0.0016, vUv.y - 0.0016)).r;
+            float relief = clamp((clA - clShadow) * 2.6, -0.4, 0.4);
+            vec3 cloudCol = vec3(0.80, 0.87, 0.98)
+              * (0.10 + 1.15 * pow(clamp(sunDot, 0.0, 1.0), 1.1))
+              * (1.0 + relief);
+            color = mix(color, cloudCol, cover * uCloudAmt * (0.10 + 0.5 * daylight));
 
             gl_FragColor = vec4(color, 1.0);
             #include <colorspace_fragment>
