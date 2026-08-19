@@ -198,13 +198,19 @@ export const earthShader = {
               altitude: each shadow sits displaced from the cloud that throws
               it, down-sun, and the displacement matches the shell's height.
             */
+            /* The mip bias is the shadow's softness: it reads a pre-blurred
+               copy straight out of the existing mipmap chain, so the shadow
+               lands with a wide penumbra instead of tracing the cloud's
+               crisp outline onto the ground. A real shadow thrown from
+               altitude has exactly that soft edge, and it costs nothing. */
             float cloudTap = texture2D(uClouds,
-              vec2(vUv.x + uCloudShift + 0.0030, vUv.y + 0.0044)).r;
-            /* Thresholded to the deck and cores only. The shell's thin
-               cirrus veil neither shadows the ground nor blots the lights,
-               and that difference is itself a depth cue: the ground stays
-               readable under high haze and goes dark under real weather. */
-            float cloudCover = smoothstep(0.32, 0.85, cloudTap) * uCloudAmt;
+              vec2(vUv.x + uCloudShift + 0.0030, vUv.y + 0.0044), 2.5).r;
+            /* Thresholded to the deck and cores only, on a wide ramp. The
+               shell's thin cirrus veil neither shadows the ground nor blots
+               the lights, and that difference is itself a depth cue: the
+               ground stays readable under high haze and goes dark under
+               real weather. */
+            float cloudCover = smoothstep(0.30, 0.90, cloudTap) * uCloudAmt;
 
             /*
               The planet's colour is generated, not sampled. There is no albedo
@@ -579,9 +585,22 @@ export const cloudShader = {
             */
             float direct = pow(clamp(sunDot, 0.0, 1.0), 0.9);
             float topLight = 0.90 + 0.40 * smoothstep(0.30, 0.85, envelope);
-            vec3 col = vec3(0.94, 0.97, 1.02) * (1.45 * direct) * topLight * (1.0 - shade);
-            col = mix(vec3(0.72, 0.82, 0.98) * (0.20 + 1.10 * direct), col,
-                      clamp(deck * 1.25, 0.0, 1.0));
+            /*
+              The tone ladder, bottom of the cloudscape to top: grey where
+              the deck thins into its skirts, whitish grey through the body,
+              full white only at the tall cores. Altitude read as value, the
+              way a cloudscape actually shades, and it is what blends the
+              strata: each band hands to the next through one continuous
+              ramp instead of a colour jump at a threshold.
+            */
+            float tone = 0.72 + 0.18 * deck + 0.12 * core;
+            vec3 col = vec3(0.94, 0.97, 1.02) * (1.45 * direct) * topLight * tone
+                     * (1.0 - shade);
+            /* The veil enters the ladder from below: grey, dim, barely
+               blue, handing over to the deck early so the two meet inside
+               the grey band. */
+            col = mix(vec3(0.64, 0.71, 0.82) * (0.25 + 0.95 * direct), col,
+                      clamp(deck * 1.1, 0.0, 1.0));
             col += vec3(0.10, 0.16, 0.30) * (0.38 + 0.45 * (1.0 - daylight));
 
             /* The same limb darkening the surface wears. */
