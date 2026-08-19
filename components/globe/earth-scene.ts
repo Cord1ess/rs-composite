@@ -16,14 +16,12 @@ import {
   AdditiveBlending,
   BufferAttribute,
   CatmullRomCurve3,
-  type Color,
   Group,
   MathUtils,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
   PlaneGeometry,
-  RepeatWrapping,
   Scene,
   ShaderMaterial,
   SphereGeometry,
@@ -33,7 +31,6 @@ import {
   WebGLRenderer,
 } from 'three'
 import {
-  ATMO,
   CAM_FOV,
   CAM_Z,
   CLOUDS,
@@ -54,30 +51,16 @@ import {
   toVector,
   vantageDip,
 } from './config'
-import { extractChannel, fetchBitmap, makeNoiseTexture } from './textures'
-import { cloudShader, earthShader, haloShader } from './shaders'
+import { makeNoiseTexture } from './textures'
 import { TUNE } from './tune'
+import { SkyState } from './scene/sky-state'
+import { buildCloudMaterial, buildEarthMaterial, buildHaloMaterial } from './scene/materials'
+import { loadEarthMaps } from './scene/assets'
+import { MarkerProjector } from './scene/markers'
 
-/* Uniform builders over the tuning schema: every former shader literal is
-   initialised from tune.ts, so the dev panel, the shipped values and the
-   shaders can never disagree. */
-const TF = (key: string) => ({ value: TUNE[key] as number })
-const TV = (key: string) => {
-  const v = TUNE[key] as [number, number, number]
-  return { value: new Vector3(v[0], v[1], v[2]) }
-}
+export type { MarkerFrame, ScenePlace } from './scene/markers'
 
-export type ScenePlace = { id: string; lon: number; lat: number }
-
-export type MarkerFrame = {
-  id: string
-  x: number
-  y: number
-  visible: boolean
-  /** 0 to 1 across the last degrees before the limb, so markers fade out
-      instead of switching off. */
-  fade: number
-}
+import type { MarkerFrame, ScenePlace } from './scene/markers'
 
 export type EarthOptions = {
   canvas: HTMLCanvasElement | OffscreenCanvas
@@ -110,7 +93,13 @@ export class EarthScene {
   private arcs: { mesh: Mesh; total: number; curve: CatmullRomCurve3 }[] = []
   private pulses: { mesh: Mesh; curve: CatmullRomCurve3; phase: number }[] = []
   private pulsePos = new Vector3()
-  private markers: { id: string; position: Vector3 }[] = []
+
+  /** The shared uniform table and runtime sky uniforms: see scene/sky-state. */
+  private sky = new SkyState()
+  /** Marker projection with source-side change detection: scene/markers. */
+  private projector = new MarkerProjector()
+  /** Cancels in-flight texture fetches when the scene dies mid-load. */
+  private aborter = new AbortController()
 
   /** The one rotation angle. Auto rotation, drag and the seeks all write to it. */
   private spin: number
@@ -127,19 +116,10 @@ export class EarthScene {
   /** Which end of the blend the current drag is moving. */
   private dragInShowcase = false
   private earthMat: ShaderMaterial | null = null
-  private cloudMat: ShaderMaterial | null = null
-  private haloMat: ShaderMaterial | null = null
   private glowMesh: Mesh | null = null
   private running = false
 
-  /* Live-tunable scene parameters, seeded from tune.ts. sunRaw keeps the
-     panel's unnormalised slider values; sun is what the shaders see. */
-  private sunRaw = new Vector3(
-    TUNE.$sunX as number,
-    TUNE.$sunY as number,
-    TUNE.$sunZ as number,
-  )
-  private sun = this.sunRaw.clone().normalize()
+  /* Live-tunable motion parameters, seeded from tune.ts. */
   private tourSpin = TUNE.$tourSpin as number
   private cloudLag = TUNE.$cloudLag as number
   private resumeAfter = TUNE.$resumeAfter as number
@@ -182,8 +162,6 @@ export class EarthScene {
   /* Time since the last presented frame while only the drift is alive; the
      deck moves ~2 px/s parked, so it repaints at 8 Hz, not display rate. */
   private driftAccum = 0
-  /* Last marker frame actually posted, so identical frames post nothing. */
-  private lastSent: { x: number; y: number; fade: number; visible: boolean }[] | null = null
   private lastPointerX = 0
   private lastTime = 0
   private arcProgress = 0
@@ -196,13 +174,8 @@ export class EarthScene {
   private opts: EarthOptions
   private disposed = false
   private errored = false
-  private projected = new Vector3()
-  private rel = new Vector3()
   private centreWorld = new Vector3()
   private size = new Vector2(1, 1)
-  /** Reused every frame. Allocating six objects and an array per frame is
-      pointless GC pressure in a loop that runs at the display rate. */
-  private frameBuf: MarkerFrame[] = []
 
   constructor(opts: EarthOptions) {
     this.opts = opts
@@ -393,48 +366,7 @@ export class EarthScene {
       fragments are a dozen ALU ops and one blend each, no texture taps.
     */
     const half = 2.5
-    this.haloMat = new ShaderMaterial({
-      transparent: true,
-      /* Normal alpha blending, deliberately not additive: additive blue
-         over the backdrop's warm nebula regions can only sum to violet,
-         which was the purple halo, unfixable by hue tuning. Painting the
-         air's own colour over the backdrop cannot. */
-      depthWrite: false,
-      depthTest: true,
-      uniforms: {
-        uColor: { value: ATMO.clone() },
-        /* The sun's direction in screen space. The camera never moves, so
-           this only changes when the panel retunes the sun. */
-        uSunDir: { value: new Vector2(this.sun.x, this.sun.y).normalize() },
-        uShellStr: TF('uShellStr'),
-        uShellFall: TF('uShellFall'),
-        uLitLo: TF('uLitLo'),
-        uLitHi: TF('uLitHi'),
-        uSideExp: TF('uSideExp'),
-        uRingEdge: TF('uRingEdge'),
-        uRingBase: TF('uRingBase'),
-        uRingGain: TF('uRingGain'),
-        uBandFall: TF('uBandFall'),
-        uBandBase: TF('uBandBase'),
-        uBandGain: TF('uBandGain'),
-        uSparkPos: TF('uSparkPos'),
-        uHeartAmp: TF('uHeartAmp'),
-        uHeartTang: TF('uHeartTang'),
-        uHeartRad: TF('uHeartRad'),
-        uBleedAmp: TF('uBleedAmp'),
-        uBleedK: TF('uBleedK'),
-        uWinLo: TF('uWinLo'),
-        uWinHi: TF('uWinHi'),
-        uCompress: TF('uCompress'),
-        uWhiteCurve: TF('uWhiteCurve'),
-        uHaloDeep: TV('uHaloDeep'),
-        uHaloPale: TV('uHaloPale'),
-        uPaleMix: TF('uPaleMix'),
-      },
-      vertexShader: haloShader.vertexShader,
-      fragmentShader: haloShader.fragmentShader,
-    })
-    const glow = new Mesh(new PlaneGeometry(half * 2, half * 2), this.haloMat)
+    const glow = new Mesh(new PlaneGeometry(half * 2, half * 2), buildHaloMaterial(this.sky))
     /*
       Close behind the limb, not far behind. The sphere occludes this plane
       past the silhouette by an overhang that grows with both the z gap and
@@ -461,136 +393,25 @@ export class EarthScene {
 
       Weights are rough file size shares, so the loading bar moves honestly.
     */
-    const parts = { lights: 0, land: 0, borders: 0, clouds: CLOUDS ? 0 : 1 }
-    const push = () =>
-      this.opts.onLoad?.(
-        parts.lights * 0.4 + parts.land * 0.25 + parts.borders * 0.15 + parts.clouds * 0.2,
-      )
-    const [lightsBm, landBm, borderBm, cloudBm] = await Promise.all([
-      fetchBitmap('/textures/lights.webp', (f) => {
-        parts.lights = f
-        push()
-      }),
-      fetchBitmap('/textures/land.webp', (f) => {
-        parts.land = f
-        push()
-      }),
-      fetchBitmap('/textures/borders.webp', (f) => {
-        parts.borders = f
-        push()
-      }),
-      CLOUDS
-        ? fetchBitmap('/textures/clouds.webp', (f) => {
-            parts.clouds = f
-            push()
-          })
-        : Promise.resolve(null),
-    ])
+    const maps = await loadEarthMaps({
+      clouds: CLOUDS,
+      renderer: this.renderer,
+      signal: this.aborter.signal,
+      onProgress: this.opts.onLoad,
+    })
     if (this.disposed) return
-
-    /* The lights ship as colour but the shader only ever used the luminance,
-       so the maximum channel is folded in during extraction. It arrives sRGB
-       encoded; the shader linearises with a pow, which is what the sRGB
-       texture flag used to do for free. */
-    const lightsMap = extractChannel(lightsBm, 'max')
-    const landMap = extractChannel(landBm, 'r')
-    const borderMap = extractChannel(borderBm, 'r')
-    const cloudMap = cloudBm ? extractChannel(cloudBm, 'r') : null
-    if (cloudMap) cloudMap.wrapS = RepeatWrapping
-
-    const maxAniso = this.renderer.capabilities.getMaxAnisotropy()
-    /*
-      The surface is seen at a glancing angle across most of the visible cap,
-      which is exactly where anisotropic filtering earns its keep, and also
-      exactly where its cost explodes: the sample count scales with the level.
-      Level 8 costs roughly half of 16 in the worst case, and 16 only ever
-      differs from 8 past an 8 to 1 texel footprint, a compression this view
-      barely reaches at its most oblique visible pixels.
-    */
-    lightsMap.anisotropy = Math.min(maxAniso, 8)
-    landMap.anisotropy = Math.min(maxAniso, 8)
-    borderMap.anisotropy = Math.min(maxAniso, 8)
-    /* The shell carries the clouds now, seen at the same glancing angles as
-       the rest of the surface, so it earns the same level. */
-    if (cloudMap) cloudMap.anisotropy = Math.min(maxAniso, 8)
+    const { lightsMap, landMap, borderMap, cloudMap } = maps
 
     /* One noise tile serves both materials: the earth's sea state and the
        shell's edge grain. It is generated, so two copies would be identical
        bytes in memory twice. */
     const noiseTex = makeNoiseTexture()
 
-    const earthMat = new ShaderMaterial({
-        uniforms: {
-          uLights: { value: lightsMap },
-          uLand: { value: landMap },
-          uBorders: { value: borderMap },
-          uSun: { value: this.sun.clone() },
-          uOcean: TV('uOcean'),
-          uLandCol: TV('uLandCol'),
-          uAtmo: TV('uAtmo'),
-          uGlint: TV('uGlint'),
-          uCity: TV('uCity'),
-          /* Bright shallow water, the top of the depth ramp. */
-          uShallow: TV('uShallow'),
-          uLandTexel: { value: new Vector2(1 / 5120, 1 / 2560) },
-          uTermLo: TF('uTermLo'),
-          uTermHi: TF('uTermHi'),
-          uSunGain: TF('uSunGain'),
-          uSunExp: TF('uSunExp'),
-          uAmbHero: TF('uAmbHero'),
-          uAmbDark: TF('uAmbDark'),
-          uDuskTint: TV('uDuskTint'),
-          uNightFloor: TF('uNightFloor'),
-          uNightFloorDark: TF('uNightFloorDark'),
-          uShoreNight: TF('uShoreNight'),
-          uLimbDark: TF('uLimbDark'),
-          uShelfExp: TF('uShelfExp'),
-          uDeepMul: TF('uDeepMul'),
-          uWaveBase: TF('uWaveBase'),
-          uWaveAmp: TF('uWaveAmp'),
-          uShoreGlow: TF('uShoreGlow'),
-          uCityGain: TF('uCityGain'),
-          uCityThLo: TF('uCityThLo'),
-          uCityThHi: TF('uCityThHi'),
-          uHazeGain: TF('uHazeGain'),
-          uBorderLit: TF('uBorderLit'),
-          uBorderDay: TF('uBorderDay'),
-          uGlintExp: TF('uGlintExp'),
-          uLaneTight: TF('uLaneTight'),
-          uGlintFresW: TF('uGlintFresW'),
-          uGlintBase: TF('uGlintBase'),
-          uGlintGain: TF('uGlintGain'),
-          uGlintShelf: TF('uGlintShelf'),
-          uRimPow: TF('uRimPow'),
-          uRimGain: TF('uRimGain'),
-          uHazePow: TF('uHazePow'),
-          uHazeAmt: TF('uHazeAmt'),
-          uRimSunLo: TF('uRimSunLo'),
-          uRimSunGain: TF('uRimSunGain'),
-          uRimWhite: TF('uRimWhite'),
-          uShOffX: TF('uShOffX'),
-          uShOffY: TF('uShOffY'),
-          uShMip: TF('uShMip'),
-          uShLo: TF('uShLo'),
-          uShHi: TF('uShHi'),
-          uShStr: TF('uShStr'),
-          uShCity: TF('uShCity'),
-          uShGlint: TF('uShGlint'),
-          /*
-            0 in the hero, 1 once settled into the section under it, riding the
-            scroll settle. The cinematic entry wants a readable night side; the
-            section view was too well lit in shadow, so the dark floor deepens
-            as the ball arrives.
-          */
-          uDark: { value: 0 },
-          uNoise: { value: noiseTex },
-          uClouds: { value: cloudMap ?? noiseTex },
-          uCloudAmt: { value: cloudMap ? (TUNE.uCloudAmt as number) : 0 },
-          uCloudShift: { value: 0 },
-        },
-        vertexShader: earthShader.vertexShader,
-        fragmentShader: earthShader.fragmentShader,
-      })
+    /* No clouds baked or fetched: the shared amount gates the earth's
+       shadow tap to zero as well. */
+    if (!cloudMap) this.sky.apply({ uCloudAmt: 0 }, () => undefined)
+
+    const earthMat = buildEarthMaterial(this.sky, { lightsMap, landMap, borderMap, cloudMap, noiseTex })
     this.earthMat = earthMat
 
     const earth = new Mesh(new SphereGeometry(EARTH_R, 128, 96), earthMat)
@@ -604,61 +425,12 @@ export class EarthScene {
         between a cloud and the shadow it casts. No depth write: the deck is
         translucent and everything above it (arcs, pulses) sorts explicitly.
       */
-      this.cloudMat = new ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        uniforms: {
-          uClouds: { value: cloudMap },
-          uNoise: { value: noiseTex },
-          uSun: { value: this.sun.clone() },
-          uCloudShift: { value: 0 },
-          uCloudAmt: TF('uCloudAmt'),
-          uTermLo: TF('uTermLo'),
-          uTermHi: TF('uTermHi'),
-          uDeckLo: TF('uDeckLo'),
-          uDeckGrain: TF('uDeckGrain'),
-          uDeckHi: TF('uDeckHi'),
-          uCoreLo: TF('uCoreLo'),
-          uCoreHi: TF('uCoreHi'),
-          uVeilLo: TF('uVeilLo'),
-          uVeilHi: TF('uVeilHi'),
-          uVeilEnvLo: TF('uVeilEnvLo'),
-          uVeilEnvHi: TF('uVeilEnvHi'),
-          uVeilAlpha: TF('uVeilAlpha'),
-          uVeilSupp: TF('uVeilSupp'),
-          uVeilColMix: TF('uVeilColMix'),
-          uToneBase: TF('uToneBase'),
-          uToneDeck: TF('uToneDeck'),
-          uToneCore: TF('uToneCore'),
-          uCloudWhite: TV('uCloudWhite'),
-          uCloudGain: TF('uCloudGain'),
-          uCloudExp: TF('uCloudExp'),
-          uTopBase: TF('uTopBase'),
-          uTopGain: TF('uTopGain'),
-          uShadeGain: TF('uShadeGain'),
-          uShadeBase: TF('uShadeBase'),
-          uShadeCore: TF('uShadeCore'),
-          uCShOffX: TF('uCShOffX'),
-          uCShOffY: TF('uCShOffY'),
-          uCloudAmb: TV('uCloudAmb'),
-          uCAmbBase: TF('uCAmbBase'),
-          uCAmbNight: TF('uCAmbNight'),
-          uVeilCol: TV('uVeilCol'),
-          uVeilColBase: TF('uVeilColBase'),
-          uVeilColGain: TF('uVeilColGain'),
-          uCFresLo: TF('uCFresLo'),
-          uCFresHi: TF('uCFresHi'),
-          uCNightAlpha: TF('uCNightAlpha'),
-          uParDeck: TF('uParDeck'),
-          uParVeil: TF('uParVeil'),
-          uCLimbDark: TF('uCLimbDark'),
-        },
-        vertexShader: cloudShader.vertexShader,
-        fragmentShader: cloudShader.fragmentShader,
-      })
       /* Fewer segments than the earth: the fresnel fade hides the shell's
          silhouette, which is the only place tessellation would show. */
-      const shell = new Mesh(new SphereGeometry(EARTH_R * 1.006, 96, 72), this.cloudMat)
+      const shell = new Mesh(
+        new SphereGeometry(EARTH_R * 1.006, 96, 72),
+        buildCloudMaterial(this.sky, cloudMap, noiseTex),
+      )
       /* After the halo (0), before the arcs and pulses: routes fly above
          the weather. Explicit, because all four share a sort depth. */
       shell.renderOrder = 1
@@ -697,8 +469,7 @@ export class EarthScene {
 
     for (const place of this.opts.places) {
       const at = toVector(place.lon, place.lat, MARKER_R)
-      this.markers.push({ id: place.id, position: at })
-      this.frameBuf.push({ id: place.id, x: 0, y: 0, visible: false, fade: 0 })
+      this.projector.add(place.id, at)
 
       const isOrigin = place.id === this.opts.originId
       const dot = new Mesh(
@@ -893,7 +664,7 @@ export class EarthScene {
     this.world.rotation.y = rendered
     this.applyVantage(rendered)
     if (this.earthMat) {
-      this.earthMat.uniforms.uDark.value = this.settle
+      this.sky.dark.value = this.settle
       /*
         Cloud drift. The shell is a child of `world`, so the deck already
         rotates WITH the planet everywhere; the shift is a slip on top of
@@ -902,20 +673,12 @@ export class EarthScene {
         model: during the tour the deck's absolute rotation is (1 - LAG)
         times the planet's, riding with it just a little slower, and over a
         parked planet (the showcase, the pre-tour hold) the same slip is
-        all that moves, a calm sign of life. The rates tried before this
-        model spun the deck at up to twice tour speed backwards, which read
-        as two unrelated shells.
+        all that moves, a calm sign of life.
 
         The ramp is the exact ramp the tour itself fades in with, so the
-        clouds and the planet start moving together at the entrance: the
-        drift used to run from the first frame while the tour waited out
-        RESUME_AFTER, and clouds rolling under a parked planet for three
-        seconds read as a glitch. Away from the resting hero state (drag,
-        seeks, the showcase) the slip runs at full strength, which keeps
-        the settled section alive; that retires the idle skip there, a
-        deliberate trade. One shift into both materials, so the deck and
-        the shadow it casts can never slide apart, and the frame is marked
-        dirty so the drift can never freeze and snap.
+        clouds and the planet start moving together at the entrance. The
+        shift is one shared uniform object (sky-state), so this single
+        write moves the deck and the shadow it casts together, always.
       */
       if (this.opts.motion) {
         const resting =
@@ -923,11 +686,7 @@ export class EarthScene {
         const ramp = resting
           ? MathUtils.clamp((this.idleFor - this.resumeAfter) / 1.5, 0, 1)
           : 1
-        const shift =
-          this.earthMat.uniforms.uCloudShift.value +
-          dt * ramp * ((this.tourSpin * this.cloudLag) / (2 * Math.PI))
-        this.earthMat.uniforms.uCloudShift.value = shift
-        if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
+        this.sky.cloudShift.value += dt * ramp * ((this.tourSpin * this.cloudLag) / (2 * Math.PI))
         /*
           The cadence, not a dirty flag. Marking every frame dirty here was
           the bug that silently retired the idle skip: the GPU repainted at
@@ -1046,65 +805,9 @@ export class EarthScene {
   }
 
   private reportMarkers() {
-    if (!this.markers.length) return
-
-    for (let i = 0; i < this.markers.length; i++) {
-      const m = this.markers[i]
-      const frame = this.frameBuf[i]
-      this.projected.copy(m.position)
-      this.world.localToWorld(this.projected)
-      /* Facing test is against the sphere's own centre, which the crop moves
-         a long way from the origin. */
-      const relZ = this.rel.copy(this.projected).sub(this.centreWorld).normalize().z
-      this.projected.project(this.camera)
-      const x = (this.projected.x + 1) / 2
-      const y = (-this.projected.y + 1) / 2
-      frame.x = x * this.size.x
-      frame.y = y * this.size.y
-      /* Fade across the last degrees before the limb instead of switching. */
-      frame.fade =
-        x > 0.01 && x < 0.99 && y > 0.01 && y < 0.99
-          ? MathUtils.clamp((relZ - 0.04) / 0.12, 0, 1)
-          : 0
-      frame.visible = frame.fade > 0.01
-    }
-
-    /*
-      Post only what changed. The worker used to ship a structured clone of
-      every marker every drawn frame while the receiving side threw
-      identical ones away; the dedup belongs on this side of the boundary,
-      where an unchanged frame costs nothing at all.
-    */
-    if (!this.lastSent) {
-      /* Allocated once; fade -1 guarantees the first frame always posts. */
-      this.lastSent = this.frameBuf.map(() => ({ x: 0, y: 0, fade: -1, visible: false }))
-    } else {
-      let changed = false
-      for (let i = 0; i < this.frameBuf.length; i++) {
-        const f = this.frameBuf[i]
-        const s = this.lastSent[i]
-        if (
-          f.visible !== s.visible ||
-          Math.abs(f.x - s.x) > 0.5 ||
-          Math.abs(f.y - s.y) > 0.5 ||
-          Math.abs(f.fade - s.fade) > 0.02
-        ) {
-          changed = true
-          break
-        }
-      }
-      if (!changed) return
-    }
-    for (let i = 0; i < this.frameBuf.length; i++) {
-      const f = this.frameBuf[i]
-      const s = this.lastSent[i]
-      s.x = f.x
-      s.y = f.y
-      s.fade = f.fade
-      s.visible = f.visible
-    }
-
-    this.opts.onMarkers(this.frameBuf)
+    if (this.projector.empty) return
+    const frames = this.projector.project(this.world, this.camera, this.centreWorld, this.size)
+    if (frames) this.opts.onMarkers(frames)
   }
 
   /* ------------------------------------------------------------ public */
@@ -1144,55 +847,18 @@ export class EarthScene {
   }
 
   /*
-    The live tuning channel. Values come from the dev panel (tune.ts holds
-    the schema and the shipped defaults), keyed by uniform name and applied
-    to whichever of the three materials declares that uniform; $-keys are
-    scene-level. Renders immediately when the loop is parked, so a slider
-    is realtime even under reduced motion or before the reveal.
+    The live tuning channel. Uniform-keyed values land in the shared table
+    (sky-state), which every material reads by reference; $-keys are scene
+    level. Renders immediately when the loop is parked, so a slider is
+    realtime even before the reveal.
   */
   setTune(values: Record<string, number | [number, number, number]>) {
-    const mats = [this.earthMat, this.cloudMat, this.haloMat]
-    for (const [key, val] of Object.entries(values)) {
-      if (key.startsWith('$')) {
-        if (key === '$haloZ' && this.glowMesh) this.glowMesh.position.z = val as number
-        else if (key === '$tourSpin') this.tourSpin = val as number
-        else if (key === '$cloudLag') this.cloudLag = val as number
-        else if (key === '$resumeAfter') this.resumeAfter = val as number
-        else if (key === '$sunX' || key === '$sunY' || key === '$sunZ') {
-          if (key === '$sunX') this.sunRaw.x = val as number
-          else if (key === '$sunY') this.sunRaw.y = val as number
-          else this.sunRaw.z = val as number
-          this.sun.copy(this.sunRaw).normalize()
-          for (const mat of [this.earthMat, this.cloudMat]) {
-            const u = mat?.uniforms.uSun
-            if (u) (u.value as Vector3).copy(this.sun)
-          }
-          const dir = this.haloMat?.uniforms.uSunDir
-          if (dir) (dir.value as Vector2).set(this.sun.x, this.sun.y).normalize()
-        }
-        continue
-      }
-      for (const mat of mats) {
-        const u = mat?.uniforms[key]
-        if (!u) continue
-        if (Array.isArray(val)) {
-          const t = u.value as {
-            isVector3?: boolean
-            set: (x: number, y: number, z: number) => unknown
-            setRGB?: (r: number, g: number, b: number) => unknown
-          }
-          if (t.isVector3) t.set(val[0], val[1], val[2])
-          else t.setRGB?.(val[0], val[1], val[2])
-        } else {
-          u.value = val
-        }
-      }
-      /* The halo names the atmosphere colour uColor; keep it in sync with
-         the earth's uAtmo so one slider moves both. */
-      if (key === 'uAtmo' && this.haloMat && Array.isArray(val)) {
-        ;(this.haloMat.uniforms.uColor.value as Color).setRGB(val[0], val[1], val[2])
-      }
-    }
+    this.sky.apply(values, (key, value) => {
+      if (key === '$haloZ' && this.glowMesh) this.glowMesh.position.z = value
+      else if (key === '$tourSpin') this.tourSpin = value
+      else if (key === '$cloudLag') this.cloudLag = value
+      else if (key === '$resumeAfter') this.resumeAfter = value
+    })
     this.needsDraw = true
     if (!this.running && this.earthMat) {
       this.renderer.render(this.scene, this.camera)
@@ -1202,6 +868,7 @@ export class EarthScene {
 
   dispose() {
     this.disposed = true
+    this.aborter.abort()
     this.stop()
     ;(this.opts.canvas as unknown as EventTarget).removeEventListener(
       'webglcontextrestored',

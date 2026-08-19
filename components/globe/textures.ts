@@ -84,10 +84,12 @@ export function makeNoiseTexture(): DataTexture {
 export async function fetchBitmap(
   url: string,
   report: (fraction: number) => void,
+  signal?: AbortSignal,
   retried = false,
 ): Promise<ImageBitmap> {
-  const res = await fetch(url).catch((err) => {
-    if (retried) throw err
+  const res = await fetch(url, { signal }).catch((err) => {
+    /* An abort is a decision, not a failure: no retry, propagate. */
+    if (retried || signal?.aborted) throw err
     return null
   })
   if (!res || !res.ok) {
@@ -96,7 +98,7 @@ export async function fetchBitmap(
        hiccup mid deploy. A second failure is real and propagates. */
     if (!retried) {
       await new Promise((resolve) => setTimeout(resolve, 900))
-      return fetchBitmap(url, report, true)
+      return fetchBitmap(url, report, signal, true)
     }
     throw new Error(`${url}: ${res ? res.status : 'network error'}`)
   }
