@@ -73,20 +73,34 @@ export const haloShader = {
                the fade never lands on a visible brightness. */
             a *= 1.0 - smoothstep(1.85, 2.38, d);
 
+            /*
+              Soft saturation, never a clamp. Under normal blending a hard
+              clamp at 1 turns the whole region where the sum exceeds one
+              into a flat opaque plateau, and the rim of that plateau is a
+              perfect circle around the spark: the bubble. Exponential
+              compression approaches full opacity but never flattens, so
+              brightness varies smoothly through every pixel of the glow
+              and there is no contour anywhere for the eye to find. The
+              1.25 gain keeps the faint terms where they were; the bright
+              ones land within a few percent of opaque.
+            */
+            float aC = 1.0 - exp(-1.25 * a);
+
             /* Optically thick and saturated at the limb, thinning to pale
                cyan outward; bright is white, dim is air, colour and
-               brightness falling away together. */
+               brightness falling away together through the same smooth
+               compression. */
             vec3 deepBlue = uColor * vec3(0.34, 0.78, 1.0);
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
-            vec3 col = mix(atmoCol, vec3(1.0), clamp(a * 0.55, 0.0, 0.97));
+            vec3 col = mix(atmoCol, vec3(1.0), aC * 0.8);
 
             /* Dither, scaled by the alpha it is dithering so it can never
                tint empty sky. */
             float dn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-            a += (dn - 0.5) * min(0.012, a);
+            aC += (dn - 0.5) * min(0.012, aC);
 
-            gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
+            gl_FragColor = vec4(col, aC);
           }
         `,
 }
