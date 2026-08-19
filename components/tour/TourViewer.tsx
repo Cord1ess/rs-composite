@@ -49,7 +49,12 @@ export function TourViewer() {
         const scene = new Ctor({
           canvas,
           spots: tourSpots,
-          motion: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+          /* Unconditional, the same owner decision as the globe (see
+             GlobeField's probe): Windows performance mode reports
+             prefers-reduced-motion and froze the auto look-around for a
+             large slice of ordinary laptops. A showcase that sits still
+             reads as broken, not reduced. */
+          motion: true,
           /*
             A real hall, standing in for ours: Poly Haven's machine_shop_01,
             CC0, no attribution required. When the facility shoot happens,

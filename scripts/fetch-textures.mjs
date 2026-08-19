@@ -62,9 +62,11 @@ const SIZES = {
     Most of the crispness comes from the unsharp pass rather than the pixel
     count, so this takes the resolution step that is worth paying for and stops.
   */
-  /* 6144 after the crispness pass: the conurbation cores are the surface's
-     only real detail and earn the extra step. */
-  lights: [6144, 3072],
+  /* 5120 after the crispness pass, down from 6144 (audit II, O4): the
+     unsharp pass carries most of the crispness, and the step saves 6 MB of
+     GPU memory and ~80 kB of wire. Golden-diffed on the entry crop, where
+     the conurbation cores are at their most magnified, before adoption. */
+  lights: [5120, 2560],
   /* 5120 after the crispness pass, up from 3072: coastline and shelf detail
      under the entry crop's magnification. */
   land: [5120, 2560],
