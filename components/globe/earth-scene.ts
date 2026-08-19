@@ -356,7 +356,17 @@ export class EarthScene {
         fragmentShader: haloShader.fragmentShader,
       }),
     )
-    glow.position.z = -0.06
+    /*
+      Close behind the limb, not far behind. The sphere occludes this plane
+      past the silhouette by an overhang that grows with both the z gap and
+      the view's obliquity; at -0.06 the entry crop's oblique framing pushed
+      that overhang past d 1.04 and swallowed the sun point whole. At -0.02
+      the overhang stays under about d 1.01 in every framing, the depth cut
+      inside the silhouette still holds (the sphere's surface sits well in
+      front near the limb), and the sun point crests the edge in the hero
+      exactly as it does in the showcase.
+    */
+    glow.position.z = -0.02
     this.root.add(glow)
   }
 

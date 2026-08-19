@@ -50,14 +50,46 @@ export const haloShader = {
             a *= mix(0.12, 1.0, pow(side, 1.6));
 
             /*
-              The sunrise. A compact flare pinned to the limb where the sun
-              clears it: about ten degrees of arc along the edge, bleeding
-              outward with an exponential tail. Added after the side weighting
-              so it stays at full strength.
+              The sunrise ambience. A soft flare along the limb where the sun
+              clears it, bleeding outward with an exponential tail. Reduced
+              from its old strength: it is no longer the sun itself, it is
+              the scattered warmth AROUND the sun point below.
             */
             float along = pow(max(dot(nd, uSunDir), 0.0), 40.0);
             float spot = along * exp(-abs(d - 1.0) * 10.0);
-            a += spot * 2.2;
+            a += spot * 1.3;
+
+            /*
+              THE SUN POINT. A hard, intense crest of light pinned exactly
+              where the sun clears the limb: an elliptical core hugging the
+              curve of the edge, stretched along the limb tangent and tight
+              radially, with its own small bloom. Its lower half lands inside
+              the silhouette, where the sphere's depth test clips it, so the
+              planet's edge cuts the point in half exactly the way a horizon
+              cuts a rising sun. The flare above and the surface glint below
+              both grade away from this one spot, which is what ties the
+              three light systems together.
+            */
+            /* Centred at 1.03, not 1.0: the plane sits behind the sphere, so
+               the sphere's depth test occludes it out to about d 1.02. A
+               core centred exactly on the limb loses nearly all of itself
+               behind the planet; 1.03 puts the bright half right on the
+               visible edge, still cut from below by the silhouette. */
+            vec2 rel = vPos - uSunDir * 1.03;
+            float tang = dot(rel, vec2(-uSunDir.y, uSunDir.x));
+            float radial = dot(rel, uSunDir);
+            float pr2 = tang * tang * 195.0 + radial * radial * 780.0;
+            float core = exp(-pr2) * 6.0;
+            float pglow = exp(-pr2 * 0.075) * 1.35;
+            a += core + pglow;
+
+            /*
+              The window. Every term above must reach zero BEFORE the discard
+              radius, or the cut shows: the flare's exponential tail was
+              still visibly alive at d 1.32 and the discard circle rendered
+              as a hard clipped arc across the glow.
+            */
+            a *= 1.0 - smoothstep(1.20, 1.31, d);
 
             /*
               The scattering gradient. Real limb atmosphere is not one colour:
@@ -78,10 +110,12 @@ export const haloShader = {
             vec3 paleEdge = mix(uColor, vec3(0.50, 0.92, 1.0), 0.65);
             vec3 atmoCol = mix(deepBlue, paleEdge, smoothstep(1.0, 1.2, d));
 
-            /* The line whitens toward the sun and the flare is nearly white,
-               like the source. */
-            vec3 col = mix(atmoCol, vec3(1.0),
-              clamp(spot * 1.4 + ring * 0.3 * pow(side, 3.0), 0.0, 0.8));
+            /* The line whitens toward the sun; the point itself is nearly
+               pure sunlight, warm white, and drags the flare around it the
+               same way. */
+            vec3 col = mix(atmoCol, vec3(1.0, 0.98, 0.93),
+              clamp(core * 0.8 + pglow * 0.35 + spot * 1.2 + ring * 0.3 * pow(side, 3.0),
+                    0.0, 0.92));
 
             /*
               Dither. A smooth dark green gradient over this much screen bands
@@ -389,8 +423,11 @@ export const earthShader = {
             /* Overcast water does not glitter. */
             spec *= 1.0 - cloudCover * 0.7;
             /* Shallow water catches more of it than open ocean, which gives the
-               glint some structure instead of a clean oval. */
-            color += uGlint * spec * (0.10 + 2.4 * pow(fres, 2.5)) * (0.8 + 0.5 * shelf) * 1.4;
+               glint some structure instead of a clean oval. The fresnel weight
+               sits a little higher since the sun point landed on the limb: the
+               water's light bleed is that point's reflection, and it grades
+               away from the crest the way the flare above it does. */
+            color += uGlint * spec * (0.10 + 2.8 * pow(fres, 2.5)) * (0.8 + 0.5 * shelf) * 1.4;
 
             /*
               No twilight band. One was tried here, a warm strip along the
@@ -419,8 +456,11 @@ export const earthShader = {
             float rim = pow(fres, 9.0) * 1.6;
             float haze = pow(fres, 2.5) * 0.06;
             /* The rim whitens where the sun grazes it, so the inside edge of
-               the limb agrees with the hot line the halo draws outside it. */
-            vec3 rimCol = mix(uAtmo, vec3(1.0), 0.35 * smoothstep(0.1, 0.6, sunDot));
+               the limb agrees with the hot line the halo draws outside it,
+               and it whitens toward the same warm white as the sun point,
+               harder than before: the surface has to look lit BY that point,
+               not merely near it. */
+            vec3 rimCol = mix(uAtmo, vec3(1.0, 0.98, 0.92), 0.5 * smoothstep(0.05, 0.55, sunDot));
             color += rimCol * (rim + haze) * sunSide;
 
             gl_FragColor = vec4(color, 1.0);
