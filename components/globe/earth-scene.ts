@@ -719,13 +719,22 @@ export class EarthScene {
     this.applyVantage(rendered)
     if (this.earthMat) {
       this.earthMat.uniforms.uDark.value = this.settle
-      /* Cloud drift, only while the hero is already rendering frames. One
-         value into both materials, so the deck and the shadow it casts on
-         the ground below can never slide apart. */
+      /*
+        Cloud drift, hero only. Increasing the shift moves the deck AGAINST
+        the spin direction (verified against the sphere's u parametrisation:
+        a feature's azimuth is rendered + spin - 2 pi shift), so the weather
+        idles backwards around the planet, a lap every nine minutes or so:
+        visible against the ground without reading as time lapse. One value
+        into both materials, so the deck and the shadow it casts can never
+        slide apart, and the frame is marked dirty because the deck now
+        moves fast enough that freezing it through the post-drag hold would
+        show as a snap when the tour resumes.
+      */
       if (this.opts.motion && this.settle < 0.999) {
-        const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.00055
+        const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.0018
         this.earthMat.uniforms.uCloudShift.value = shift
         if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
+        this.needsDraw = true
       }
     }
 

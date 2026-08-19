@@ -554,12 +554,19 @@ export const cloudShader = {
               bluer and dimmer than the deck, thin air against thick water
               vapour.
             */
-            float direct = pow(clamp(sunDot, 0.0, 1.0), 1.05);
-            float topLight = 0.88 + 0.35 * smoothstep(0.30, 0.85, envelope);
-            vec3 col = vec3(0.94, 0.97, 1.02) * (1.15 * direct) * topLight * (1.0 - shade);
-            col = mix(vec3(0.68, 0.79, 0.96) * (0.15 + 0.95 * direct), col,
+            /*
+              Gain 1.45 on a softened exponent, hotter than the first cut's
+              1.15/1.05: at this grazing sun angle most of the cap sits at
+              low sunDot, and the gentler curve is what lifts the deck from
+              grey to white there. The peak by the glint just reaches full
+              white, which is where clouds should clip if anywhere.
+            */
+            float direct = pow(clamp(sunDot, 0.0, 1.0), 0.9);
+            float topLight = 0.90 + 0.40 * smoothstep(0.30, 0.85, envelope);
+            vec3 col = vec3(0.94, 0.97, 1.02) * (1.45 * direct) * topLight * (1.0 - shade);
+            col = mix(vec3(0.72, 0.82, 0.98) * (0.20 + 1.10 * direct), col,
                       clamp(deck * 1.25, 0.0, 1.0));
-            col += vec3(0.07, 0.12, 0.24) * (0.30 + 0.45 * (1.0 - daylight));
+            col += vec3(0.10, 0.16, 0.30) * (0.38 + 0.45 * (1.0 - daylight));
 
             /* The same limb darkening the surface wears. */
             col *= 1.0 - 0.22 * fres * fres;
