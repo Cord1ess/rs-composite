@@ -79,7 +79,9 @@ export type EarthOptions = {
   canvas: HTMLCanvasElement | OffscreenCanvas
   places: ScenePlace[]
   originId: string
-  /** False under prefers-reduced-motion. Renders, settles, then holds still. */
+  /** False renders once, settles and holds still. Production always passes
+      true now (see GlobeField's probe): Windows performance mode reports
+      prefers-reduced-motion and froze the centrepiece. */
   motion: boolean
   /** window.devicePixelRatio, passed in because a worker has no window. */
   dpr: number

@@ -14,9 +14,8 @@ import { announceHero, markHeroReady } from '@/lib/hero-loader'
 
   That removes the safety net, so the gate below is narrower than it was. It no
   longer excludes phones, because there is nothing else for them to fall back
-  to, and it no longer excludes reduced motion: that renders the Earth and then
-  holds it still rather than skipping it. What still fails is data saver, a slow
-  connection, two cores or no WebGL, and those see the plain dark hero.
+  to. What still fails is data saver, a slow connection, two cores or no WebGL,
+  and those see the plain dark hero.
 */
 
 const Earth3D = dynamic(() => import('./Earth3D'), { ssr: false })
@@ -36,7 +35,17 @@ function probe() {
     return null
   }
 
-  return { motion: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }
+  /*
+    The globe animates unconditionally, an owner decision (2026-08-19), and a
+    considered one: this flag used to follow prefers-reduced-motion, and on
+    Windows the "performance mode" power setting turns system animation
+    effects off, which browsers report as reduce. That froze the planet, the
+    tour and the clouds for a large slice of ordinary laptops, including the
+    owner's, and a dead centrepiece is not a reduced experience of this site,
+    it is a broken one. Small UI animation (counters, icons) still honours
+    the flag.
+  */
+  return { motion: true }
 }
 
 export function GlobeField() {

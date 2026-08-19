@@ -78,10 +78,11 @@ export function LoadingScreen() {
     void run().then(async () => {
       if (cancelled) return
       /* The planet enters now, behind the opaque curtain. See ENTRANCE_HOLD.
-         Reduced motion has no entrance to wait for, so no hold either. */
+         Unconditional: the globe animates its entrance even under reduced
+         motion (see GlobeField's probe), so skipping the hold there would
+         lift the curtain mid-entrance. */
       release()
-      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      if (!reduced) await wait(ENTRANCE_HOLD)
+      await wait(ENTRANCE_HOLD)
       if (cancelled) return
       setPhase('exit')
       markPageRevealed()
