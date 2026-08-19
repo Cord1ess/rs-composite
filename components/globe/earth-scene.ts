@@ -723,10 +723,11 @@ export class EarthScene {
         Cloud drift, whenever motion is allowed at all. Increasing the shift
         moves the deck AGAINST the spin direction (verified against the
         sphere's u parametrisation: a feature's azimuth is rendered + spin -
-        2 pi shift), so the weather idles backwards around the planet, a lap
-        every three and a half minutes. That is absurd meteorology and the
-        right display speed: measured at a lap per nine minutes, a viewer
-        watching for a few seconds reported no rotation at all. One value
+        2 pi shift), so the weather rolls backwards around the planet, a lap
+        every 80 seconds or so. Realism was explicitly traded away here, in
+        two steps: a lap per nine minutes read as static, a lap per three
+        and a half minutes still read as barely alive, and the owner asked
+        for visible rotation over meteorology. One value
         into both materials, so the deck and the
         shadow it casts can never slide apart, and the frame is marked dirty
         so the drift can never freeze and snap.
@@ -738,7 +739,7 @@ export class EarthScene {
         idle skip.
       */
       if (this.opts.motion) {
-        const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.005
+        const shift = this.earthMat.uniforms.uCloudShift.value + dt * 0.0125
         this.earthMat.uniforms.uCloudShift.value = shift
         if (this.cloudMat) this.cloudMat.uniforms.uCloudShift.value = shift
         this.needsDraw = true
