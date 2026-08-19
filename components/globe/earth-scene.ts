@@ -338,7 +338,15 @@ export class EarthScene {
       soft bloom behind it, matching the reference where the rim is a thin hard
       line of light rather than a broad haze.
     */
-    const half = 1.34
+    /*
+      2.5 planet radii, not 1.34. The spark's inverse-square bleed needs
+      room: with the old quad the glow was forcibly faded to zero a third
+      of a radius past the limb, and zoomed out that fade rendered as a
+      visible arc around the light, the hollow-ring artifact. At 2.5 the
+      fade lives where the tail is already below perception. The extra
+      fragments are a dozen ALU ops and one blend each, no texture taps.
+    */
+    const half = 2.5
     const glow = new Mesh(
       new PlaneGeometry(half * 2, half * 2),
       new ShaderMaterial({

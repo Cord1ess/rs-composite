@@ -17,10 +17,11 @@ export const haloShader = {
           varying vec2 vPos;
           void main() {
             float d = length(vPos);
-            /* Past the bloom and the flare tails nothing survives, but the
-               quad's corners still reach d 1.9. Dropping them here skips the
-               blend stage for roughly a third of the quad's area. */
-            if (d > 1.32) discard;
+            /* Only the quad's far corners die early: the spark's bleed is
+               allowed to spread, so the working area is deliberately big.
+               By 2.45 the window below has already taken everything to
+               zero. */
+            if (d > 2.45) discard;
             vec2 nd = normalize(vPos + vec2(1e-5));
 
             /*
@@ -82,11 +83,15 @@ export const haloShader = {
             a += heart + bleed;
 
             /*
-              The window. Every term above must reach zero BEFORE the
-              discard radius, or the cut renders as a hard clipped arc
-              across the glow.
+              The window, pushed far out. It used to close at 1.31, which
+              clipped the bleed a third of a radius past the limb; zoomed
+              out, that clip rendered as an arc around the glow, the
+              hollow ring. It now closes across 1.85 to 2.38, where the
+              inverse-square tail sits below a half percent of alpha, so
+              the fade never lands on a visible brightness: the light
+              spreads until the eye has already lost it.
             */
-            a *= 1.0 - smoothstep(1.20, 1.31, d);
+            a *= 1.0 - smoothstep(1.85, 2.38, d);
 
             /*
               The scattering gradient. Real limb atmosphere is not one colour:
