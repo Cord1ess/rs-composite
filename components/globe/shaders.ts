@@ -375,7 +375,8 @@ export const earthShader = {
               and darkens like any other ground, it is just brighter and
               barely blue, the way ice photographs from orbit.
             */
-            base = mix(base, uIceCol, smoothstep(uIceLo, uIceHi, land) * uIceAmt);
+            float ice = smoothstep(uIceLo, uIceHi, land) * uIceAmt;
+            base = mix(base, uIceCol, ice);
 
             /*
               High gain, because the sun only grazes: peak sunDot across the
@@ -391,7 +392,12 @@ export const earthShader = {
               terms, not added bands, so neither can read as a ring.
             */
             float duskBand = smoothstep(0.30, 0.02, sunDot) * smoothstep(-0.12, 0.02, sunDot);
-            vec3 sunTint = mix(vec3(1.0), uDuskTint, duskBand);
+            /* Ice is exempt from the dusk warming: multiplying a bright,
+               near-neutral surface by a warm tint manufactures brown-grey,
+               which is exactly what Greenland did at the terminator. Land
+               and ocean are blue enough to swallow the warmth; snow is
+               not, and physically it reflects skylight anyway. */
+            vec3 sunTint = mix(vec3(1.0), uDuskTint, duskBand * (1.0 - ice));
             /* The dark floor deepens with uDark: the settled section view sat
                too well lit in shadow at the hero's ambient level. */
             vec3 lit = base * (mix(uAmbHero, uAmbDark, uDark) * vec3(0.85, 0.92, 1.12)

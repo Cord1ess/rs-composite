@@ -48,8 +48,10 @@ export const TUNE: Record<string, TuneValue> = {
   uWaveAmp: 0.16,
   uShoreGlow: 0.55,
   /* Ice caps: the land channel's brightest band whitens toward uIceCol.
-     0.75 sits above desert luminance (~0.66) and below snowpack (0.85+). */
-  uIceCol: [0.19, 0.23, 0.29],
+     0.75 sits above desert luminance (~0.66) and below snowpack (0.85+).
+     The colour is decisively COOL, never neutral: surrounded by this much
+     saturated blue, a neutral grey reads brown by contrast alone. */
+  uIceCol: [0.155, 0.215, 0.31],
   uIceLo: 0.75,
   uIceHi: 0.92,
   uIceAmt: 0.9,
