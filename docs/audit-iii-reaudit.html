@@ -1,0 +1,181 @@
+﻿<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth System Audit III</title>
+<style>
+  :root {
+    --bg: #07090e; --panel: #0d1118; --panel-2: #10151f; --line: #1c2433;
+    --text: #c9d4e3; --dim: #7d8aa0; --faint: #55617a; --head: #eef3fa;
+    --gold: #f0b849; --blue: #5fb0ff;
+    --crit: #ff6b6b; --high: #ffa94d; --med: #ffd43b; --low: #69db7c;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter Tight", "Segoe UI", system-ui, sans-serif; line-height: 1.62; margin: 0; padding: 0 20px 90px; font-size: 15.5px; }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { padding: 64px 0 34px; border-bottom: 1px solid var(--line); }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); margin: 0 0 14px; }
+  h1 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(30px, 5vw, 44px); font-weight: 500; color: var(--head); margin: 0 0 12px; letter-spacing: -0.015em; text-wrap: balance; }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .meta b { color: var(--dim); font-weight: 500; }
+  h2 { font-family: Georgia, serif; font-weight: 500; color: var(--head); font-size: 24px; margin: 58px 0 6px; letter-spacing: -0.01em; }
+  h2 .no { color: var(--gold); font-family: var(--mono); font-size: 15px; margin-right: 10px; }
+  h3 { color: var(--head); font-size: 16.5px; margin: 34px 0 10px; font-weight: 600; }
+  p { margin: 12px 0; }
+  .lede { color: var(--dim); font-size: 15px; margin: 4px 0 22px; }
+  code, .m { font-family: var(--mono); font-size: 0.86em; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: #a8c4e6; white-space: nowrap; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .card h4 { margin: 0 0 6px; color: var(--head); font-size: 15px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card p { margin: 7px 0; font-size: 14.5px; }
+  .card .fix { color: var(--dim); font-size: 14px; }
+  .card .fix b { color: var(--low); font-weight: 600; }
+  .id { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .sev { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; border-radius: 999px; padding: 2px 9px; text-transform: uppercase; font-weight: 600; }
+  .sev.med { background: rgba(255,212,59,.10); color: var(--med); border: 1px solid rgba(255,212,59,.3); }
+  .sev.low { background: rgba(105,219,124,.10); color: var(--low); border: 1px solid rgba(105,219,124,.3); }
+  .sev.info { background: rgba(95,176,255,.10); color: var(--blue); border: 1px solid rgba(95,176,255,.3); }
+  .tblwrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th { text-align: left; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; border-bottom: 1px solid var(--line); padding: 8px 12px 8px 0; }
+  td { border-bottom: 1px solid #141a26; padding: 8px 12px 8px 0; vertical-align: top; }
+  td.num { font-family: var(--mono); font-size: 12.5px; color: #a8c4e6; white-space: nowrap; }
+  td.sum { font-family: var(--mono); font-size: 12.5px; color: var(--gold); white-space: nowrap; }
+  .good { color: var(--low); }
+  .warn { color: var(--high); }
+  ul { padding-left: 22px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  li::marker { color: var(--gold); }
+  .note { border: 1px solid rgba(240,184,73,.25); background: rgba(240,184,73,.05); border-radius: 10px; padding: 14px 18px; margin: 18px 0; font-size: 14.5px; }
+  .note b { color: var(--gold); }
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 20px; padding: 18px 0 4px; }
+  .toc a { color: var(--dim); text-decoration: none; font-size: 13.5px; }
+  .toc a:hover { color: var(--gold); }
+  .toc .n { font-family: var(--mono); color: var(--gold); font-size: 11.5px; margin-right: 8px; }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">RS Composite Â· Globe Engine</p>
+  <h1>Earth System Audit III</h1>
+  <p class="meta">audited at <b>8920255</b> Â· 2026-08-19 Â· fresh pass over code quality, design, performance, optimization Â· all sizes measured from the production build, not estimated</p>
+  <nav class="toc">
+    <a href="#verdict"><span class="n">01</span>Verdict</a>
+    <a href="#package"><span class="n">02</span>The package, measured</a>
+    <a href="#overhead"><span class="n">03</span>Runtime overhead</a>
+    <a href="#findings"><span class="n">04</span>New findings</a>
+    <a href="#quality"><span class="n">05</span>Code quality</a>
+    <a href="#ceiling"><span class="n">06</span>The ceiling</a>
+  </nav>
+</header>
+
+<h2 id="verdict"><span class="no">01</span>Verdict</h2>
+<p class="lede">One real architectural finding survived this pass. Everything else is small, cosmetic, or deliberately parked.</p>
+<p>After Audit II's six phases, this system is in genuinely strong shape: worker isolation with no duplicated three.js, a shared uniform table that makes a whole class of bugs impossible, an error spine that survives dead networks and blocked workers, a regression harness holding the visual line, and a parked page that renders at 8 Hz instead of 60. Most audits of a system this age find rot; this pass mostly found the previous audit's work holding.</p>
+<p>The one discovery that matters: <b>the three preloaded textures are downloaded twice</b> â€” measured against the production build, not theorized. Beyond that: a few kilobytes of schema strings riding in chunks that don't need them, a missing accessibility label, two cosmetic debts, and a short list of things that could theoretically be done but shouldn't be â€” documented in Â§06 so "can anything more be done" has a real answer instead of a shrug.</p>
+
+<h2 id="package"><span class="no">02</span>The package, measured</h2>
+<p class="lede">Production build of 2026-08-19. Gzip figures are what travels; raw figures are what the browser parses or the GPU holds.</p>
+
+<h3>JavaScript</h3>
+<div class="tblwrap"><table>
+  <tr><th>What</th><th>Size</th><th>When it loads</th></tr>
+  <tr><td>Homepage first load (shared runtime + page)</td><td class="num">117 kB gz</td><td>immediately</td></tr>
+  <tr><td>three.js (two split chunks, 531 kB raw)</td><td class="num">132 kB gz</td><td>lazily, behind the capability gate</td></tr>
+  <tr><td>Globe scene + worker + Earth3D chunks (81 kB raw)</td><td class="num">â‰ˆ25 kB gz</td><td>lazily, with three</td></tr>
+  <tr><td>Tuning panel body</td><td class="num">0</td><td class="good">never in production without ?tune</td></tr>
+  <tr><td>Worker's copy of three</td><td class="num">0</td><td class="good">shares the same chunks â€” no duplication</td></tr>
+  <tr><td><b>Total JS for the full hero experience</b></td><td class="sum">â‰ˆ274 kB gz</td><td>117 up front, ~157 deferred</td></tr>
+</table></div>
+
+<h3>Assets on the wire</h3>
+<div class="tblwrap"><table>
+  <tr><th>File</th><th>Size</th><th>Notes</th></tr>
+  <tr><td>lights.webp (5120Ã—2560)</td><td class="num">337 kB</td><td>was 468 before this week's 5120 step</td></tr>
+  <tr><td>clouds.webp (2560Ã—1280)</td><td class="num">431 kB</td><td>fBm-enhanced bake</td></tr>
+  <tr><td>land.webp (5120Ã—2560)</td><td class="num">393 kB</td><td>GEBCO + Blue Marble + Natural Earth packing</td></tr>
+  <tr><td>borders.webp (4096Ã—2048)</td><td class="num">166 kB</td><td>q86; thin lines resist compression</td></tr>
+  <tr><td>galaxy.avif</td><td class="num">49 kB</td><td>CSS background, preloaded</td></tr>
+  <tr><td><b>Critical texture payload</b></td><td class="sum">1,376 kB</td><td>what the loading screen actually waits for</td></tr>
+  <tr><td>tour.webp (4096Ã—2048)</td><td class="num">1,120 kB</td><td>deferred until the tour section approaches</td></tr>
+  <tr><td>hero-fallback.webp</td><td class="num">71 kB</td><td>failure and gated paths only</td></tr>
+</table></div>
+<p><b>Everything to a fully lit hero: â‰ˆ1.65 MB</b> (117 kB JS + ~157 kB deferred JS + 1,376 kB textures + 49 kB galaxy). For a page whose centrepiece is a photoreal planet, that is lean â€” a typical hero <em>video</em> runs 5â€“15 MB and can't be dragged.</p>
+
+<h3>GPU memory</h3>
+<div class="tblwrap"><table>
+  <tr><th>What</th><th>Size</th><th>Notes</th></tr>
+  <tr><td>Textures with mips (all single-channel R8)</td><td class="num">â‰ˆ50 MB</td><td>lights 17.4 Â· land 17.4 Â· borders 11.2 Â· clouds 4.4 Â· noise 0.1</td></tr>
+  <tr><td>Framebuffers at rest (DPR 2, 1600Ã—900, MSAA 4Ã—)</td><td class="num">â‰ˆ205 MB</td><td>the real elephant: 4Ã— colour + 4Ã— depth + resolve</td></tr>
+  <tr><td>Framebuffers during motion (DPR 1)</td><td class="num">â‰ˆ52 MB</td><td>the dynamic-resolution drop is also a memory drop</td></tr>
+  <tr><td>Geometry + three overhead</td><td class="num">&lt;5 MB</td><td>~50k vertices total</td></tr>
+</table></div>
+<p>The MSAA framebuffer dominates and is a settled decision: the no-MSAA trial failed on real hardware, and the buffers scale down 4Ã— whenever the governor drops resolution. Texture memory halved would have been KTX2's contribution â€” closed under the no-quality-loss constraint.</p>
+
+<h2 id="overhead"><span class="no">03</span>Runtime overhead</h2>
+<div class="tblwrap"><table>
+  <tr><th>Metric</th><th>Value</th><th>Context</th></tr>
+  <tr><td>Draw calls per frame</td><td class="num">~18</td><td>1 earth, 1 shell, 1 halo, 6 dots, 5 arcs, 5 pulses</td></tr>
+  <tr><td>Frames rendered, parked showcase</td><td class="num good">~8/s</td><td>was 60/s before Phase 2; full rate returns on any interaction</td></tr>
+  <tr><td>Frames rendered, tab hidden / hero off-screen</td><td class="num good">0</td><td>browser rAF throttle + IntersectionObserver</td></tr>
+  <tr><td>Worker â†’ main messages, parked</td><td class="num good">~0/s</td><td>markers dedup at the source</td></tr>
+  <tr><td>Main-thread cost of the globe</td><td class="num good">â‰ˆ0 ms/frame</td><td>all WebGL in the worker; DOM writes only when markers move</td></tr>
+  <tr><td>Earth fragment cost, showcase</td><td class="num">7 taps</td><td>bicubic collapses to bilinear under minification (was 10)</td></tr>
+  <tr><td>Cloud shell fragment cost, clear sky</td><td class="num">2 taps</td><td>early-out; ~half the shell's area (was 5)</td></tr>
+  <tr><td>Load pipeline</td><td class="num">4 parallel fetches</td><td>abortable, retried once, error-spined into the fallback</td></tr>
+</table></div>
+
+<h2 id="findings"><span class="no">04</span>New findings</h2>
+
+<div class="card">
+  <h4><span class="id">A1</span> The preloaded textures download twice <span class="sev med">medium Â· measured</span></h4>
+  <p>Measured against the production server: <code>lights</code>, <code>land</code> and <code>borders</code> each produce <b>two requests</b> â€” the main thread's <code>&lt;link preload&gt;</code> fetches them in full, then the worker's own fetch misses the document-scoped preload cache and re-requests. Locally the second round is 304 revalidations; on a first CDN visit it can be a full ~900 kB duplicate. The control that proves it: <code>clouds.webp</code>, the one texture <em>not</em> preloaded, is requested exactly once.</p>
+  <p class="fix"><b>Fix (recommended):</b> fetch on the main thread, where the preload cache lives, and transfer the decoded ImageBitmaps into the worker (they are transferable â€” zero copy). This not only deletes the duplication, it starts the downloads before the worker has even booted, which is what the preloads always wanted. Moderate change: an assets message in the protocol, a "bitmaps provided" path in assets.ts. <b>Alternative:</b> drop the preloads and accept a later download start. <b>Do nothing</b> costs three revalidation round-trips per visit and the occasional real duplicate.</p>
+</div>
+
+<div class="card">
+  <h4><span class="id">A2</span> The panel schema rides in chunks that never render it <span class="sev low">low</span></h4>
+  <p>tune.ts exports both the values (TUNE) and the panel's SECTIONS schema. The schema's label strings ("Ladder: skirts"â€¦) are verifiably present in three chunks, including the worker's and the scene's â€” webpack does not tree-shake them apart. ~4â€“5 kB of dead strings, twice.</p>
+  <p class="fix"><b>Fix:</b> move SECTIONS to <code>tune-schema.ts</code>, imported only by the panel body. Ten minutes.</p>
+</div>
+
+<div class="card">
+  <h4><span class="id">A3</span> The globe canvas has no accessible name <span class="sev low">low</span></h4>
+  <p>The marker buttons are labelled; the canvas itself is anonymous to a screen reader.</p>
+  <p class="fix"><b>Fix:</b> <code>aria-label</code> and <code>role="img"</code> on the canvas â€” one line, describing the export-markets globe.</p>
+</div>
+
+<div class="card">
+  <h4><span class="id">A4</span> The gates exist but nothing chains them <span class="sev low">low Â· process</span></h4>
+  <p>Shader lint, tsc, and the golden harness each run when remembered. Nothing runs them together, and nothing runs before a push.</p>
+  <p class="fix"><b>Fix:</b> an <code>npm run check</code> that chains lint â†’ typecheck â†’ verify, and optionally a pre-push hook. The harness needs the dev server, so the hook should skip gracefully when :3000 is down.</p>
+</div>
+
+<div class="card">
+  <h4><span class="id">A5</span> Cosmetic debt <span class="sev info">cosmetic</span></h4>
+  <p>Two blemishes from fast iteration: the worker block in Earth3D carries wrong indentation from the Phase 1 restructure (the <code>if (box)</code> wrapper), and <code>frame()</code> is a ~200-line method that reads as four labelled acts. Neither affects behaviour; both would annoy a new contributor.</p>
+</div>
+
+<h2 id="quality"><span class="no">05</span>Code quality &amp; design assessment</h2>
+<ul>
+  <li><b>Architecture</b> â€” the composition-root + scene-modules split is right-sized. Motion and the governor remain inline (801 lines total): still the correct call; they share the frame loop's state and neither has grown. Revisit only if one does.</li>
+  <li><b>The shared uniform table</b> is the best structural decision in the codebase: material wiring is derived from the GLSL itself and an unknown name throws at construction. There is no silent path between the shaders, the tuning schema, and the scene.</li>
+  <li><b>Comment culture</b> â€” the shaders and scene document decisions and rejected alternatives inline, which is why three rejected cloud approaches never came back. Worth protecting.</li>
+  <li><b>Failure design</b> â€” every environment in the fallback matrix lands somewhere designed; the worker-crash listener that Phase 2's own verification exposed is the kind of gap only adversarial testing finds. The remaining untested path is a real CDN outage pattern (slow-then-dead), which the retry + error spine should cover but has only been tested as fast-dead.</li>
+  <li><b>The tour and loader</b> around the earth system are properly gated (wake-ahead observer, run-only-on-screen, full dispose) and share the earth's design language. No findings.</li>
+  <li><b>Determinism discipline</b> â€” the tune-seed freeze that makes goldens byte-stable is quietly the most valuable testing idea in the project; it turns "looks the same to me" into an exit code.</li>
+</ul>
+
+<h2 id="ceiling"><span class="no">06</span>The ceiling: what "more" would look like, and why not</h2>
+<p class="lede">A genuine answer to "can anything more be done" has to name the things that exist beyond the current design, not just approve the status quo.</p>
+<div class="tblwrap"><table>
+  <tr><th>Lever</th><th>What it would buy</th><th>Why it stays unpulled</th></tr>
+  <tr><td>A1's main-thread fetch + transfer</td><td class="good">the last real win: no duplicate downloads, earlier start</td><td class="good">nothing â€” this one is worth doing on request</td></tr>
+  <tr><td>RG cloud texture (real height channel)</td><td>sharper strata lighting, height-scaled shadows</td><td>parked until the owner's tuning session lands; it changes what the sliders mean</td></tr>
+  <tr><td>KTX2 compressed textures</td><td>~25 MB GPU on phones</td><td>closed by owner constraint: per-device transcoding makes "no quality change" unverifiable, and the mip-as-data tricks would shift</td></tr>
+  <tr><td>Halo as annulus + spark quad geometry</td><td>skips rasterizing the discarded interior</td><td>the interior is already depth-culled by the planet and the sky area early-discards; measured win would be ALU on dead fragments only â€” complexity exceeds gain</td></tr>
+  <tr><td>WebGPU + compute-shader volumetric clouds</td><td>true volumetrics, orders beyond the shell</td><td>a rewrite of the entire stack for a browser share that cannot run it; the shell + strata + parallax already read as depth at hero scale</td></tr>
+  <tr><td>HDR render target + tone mapping</td><td>physically graded highlights</td><td>the LDR compression tricks deliver the reference look at zero pass cost; an HDR pipeline reopens every tuned value</td></tr>
+  <tr><td>Impostor/billboard LOD for the parked ball</td><td>near-zero parked GPU</td><td>Phase 2's 8 Hz cadence already cut parked cost ~85%; an impostor adds a visible swap seam for the remaining ~15%</td></tr>
+</table></div>
+
+<div class="note"><b>Bottom line.</b> The earth system is at its practical ceiling for its architecture. One worthwhile change remains on the table (A1, plus the ten-minute A2/A3/A4 trims); everything past that trades quality, stability, or the owner's constraints for wins this page would not feel. The next meaningful change to the globe is artistic â€” the tuning session â€” not engineering.</div>
+</div>
+

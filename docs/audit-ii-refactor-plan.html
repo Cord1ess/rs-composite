@@ -1,0 +1,337 @@
+﻿<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth System Audit II</title>
+<style>
+  :root {
+    --bg: #07090e;
+    --panel: #0d1118;
+    --panel-2: #10151f;
+    --line: #1c2433;
+    --text: #c9d4e3;
+    --dim: #7d8aa0;
+    --faint: #55617a;
+    --head: #eef3fa;
+    --gold: #f0b849;
+    --blue: #5fb0ff;
+    --crit: #ff6b6b;
+    --high: #ffa94d;
+    --med: #ffd43b;
+    --low: #69db7c;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter Tight", "Segoe UI", system-ui, sans-serif;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 20px 90px;
+    font-size: 15.5px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { padding: 64px 0 34px; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--gold); margin: 0 0 14px;
+  }
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(30px, 5vw, 44px); font-weight: 500;
+    color: var(--head); margin: 0 0 12px; letter-spacing: -0.015em; text-wrap: balance;
+  }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .meta b { color: var(--dim); font-weight: 500; }
+  h2 {
+    font-family: Georgia, serif; font-weight: 500; color: var(--head);
+    font-size: 24px; margin: 58px 0 6px; letter-spacing: -0.01em;
+  }
+  h2 .no { color: var(--gold); font-family: var(--mono); font-size: 15px; margin-right: 10px; }
+  h3 { color: var(--head); font-size: 16.5px; margin: 34px 0 10px; font-weight: 600; }
+  p { margin: 12px 0; }
+  .lede { color: var(--dim); font-size: 15px; margin: 4px 0 22px; }
+  code, .m {
+    font-family: var(--mono); font-size: 0.86em; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: #a8c4e6;
+    white-space: nowrap;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; margin: 14px 0;
+  }
+  .card h4 { margin: 0 0 6px; color: var(--head); font-size: 15px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card p { margin: 7px 0; font-size: 14.5px; color: var(--text); }
+  .card .fix { color: var(--dim); font-size: 14px; }
+  .card .fix b { color: var(--low); font-weight: 600; }
+  .id { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .sev {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; border-radius: 999px;
+    padding: 2px 9px; text-transform: uppercase; font-weight: 600;
+  }
+  .sev.crit { background: rgba(255,107,107,.12); color: var(--crit); border: 1px solid rgba(255,107,107,.35); }
+  .sev.high { background: rgba(255,169,77,.12); color: var(--high); border: 1px solid rgba(255,169,77,.35); }
+  .sev.med  { background: rgba(255,212,59,.10); color: var(--med); border: 1px solid rgba(255,212,59,.3); }
+  .sev.low  { background: rgba(105,219,124,.10); color: var(--low); border: 1px solid rgba(105,219,124,.3); }
+  .tblwrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--faint); font-weight: 500;
+    border-bottom: 1px solid var(--line); padding: 8px 12px 8px 0;
+  }
+  td { border-bottom: 1px solid #141a26; padding: 8px 12px 8px 0; vertical-align: top; }
+  td.num { font-family: var(--mono); font-size: 12.5px; color: #a8c4e6; white-space: nowrap; }
+  .good { color: var(--low); }
+  .warn { color: var(--high); }
+  .phase {
+    border-left: 2px solid var(--gold); padding: 2px 0 2px 18px; margin: 22px 0;
+  }
+  .phase h4 { margin: 0; color: var(--head); font-size: 15.5px; }
+  .phase .tag { font-family: var(--mono); font-size: 11px; color: var(--gold); letter-spacing: .1em; }
+  .phase p { font-size: 14.5px; margin: 7px 0; }
+  .phase .verify { font-size: 13.5px; color: var(--dim); }
+  .phase .verify b { color: var(--blue); font-weight: 600; }
+  ul { padding-left: 22px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  li::marker { color: var(--gold); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+  .pill-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .pill {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; color: var(--dim);
+  }
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 20px; padding: 18px 0 4px; }
+  .toc a { color: var(--dim); text-decoration: none; font-size: 13.5px; border-bottom: none; }
+  .toc a:hover { color: var(--gold); }
+  .toc .n { font-family: var(--mono); color: var(--gold); font-size: 11.5px; margin-right: 8px; }
+  .note {
+    border: 1px solid rgba(240,184,73,.25); background: rgba(240,184,73,.05);
+    border-radius: 10px; padding: 14px 18px; margin: 18px 0; font-size: 14.5px;
+  }
+  .note b { color: var(--gold); }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">RS Composite Â· Globe Engine</p>
+  <h1>Earth System Audit II</h1>
+  <p class="meta">audited at <b>624453e</b> Â· 2026-08-19 Â· scope: Earth3D â†’ scene â†’ shaders â†’ textures â†’ worker â†’ loader contract Â· plan only, no changes made</p>
+  <nav class="toc">
+    <a href="#verdict"><span class="n">01</span>Verdict</a>
+    <a href="#numbers"><span class="n">02</span>The numbers today</a>
+    <a href="#flaws"><span class="n">03</span>Flaws &amp; issues</a>
+    <a href="#opt"><span class="n">04</span>Optimizations</a>
+    <a href="#arch"><span class="n">05</span>Refactoring architecture</a>
+    <a href="#phases"><span class="n">06</span>Execution phases</a>
+    <a href="#fallbacks"><span class="n">07</span>Fallback matrix</a>
+    <a href="#not"><span class="n">08</span>Deliberately not doing</a>
+  </nav>
+</header>
+
+<h2 id="verdict"><span class="no">01</span>Verdict</h2>
+<p class="lede">Strong bones, three real hazards, one dead optimization, and a class that outgrew its file.</p>
+<p>The foundations from the first audit have held up: worker-isolated rendering, single-channel R8 texture packing, solved-not-guessed framing constants, the measurement-first workflow, and now a tuning system where every visual parameter flows from one schema. None of that needs revisiting.</p>
+<p>What the last three weeks of fast iteration left behind: <b>the failure paths were never finished</b> (a texture that fails twice, or a blocked worker, currently strands a black hero with no fallback), <b>the idle-skip optimization is silently dead</b> (the cloud drift marks every frame dirty, so the GPU renders at display rate forever, everywhere), and <b>earth-scene.ts hit 1,059 lines</b> â€” a motion controller, a resolution governor, an asset loader, three materials, a marker projector and a tuning bus sharing one class. Each is small and clean on its own; together they are why every change now touches the same file.</p>
+<p>The plan below is ordered so safety lands first, the perf floor second, and the pure refactor third â€” with a golden-frame harness making "zero visual change" a checked property instead of a hope.</p>
+
+<h2 id="numbers"><span class="no">02</span>The numbers today</h2>
+<p class="lede">Measured or derived from the shipped code, as the baseline the plan is judged against.</p>
+<div class="tblwrap"><table>
+  <tr><th>Resource</th><th>Size</th><th>Notes</th></tr>
+  <tr><td>GPU textures (with mips)</td><td class="num">â‰ˆ 58 MB</td><td>lights 25 Â· land 17.5 Â· borders 11 Â· clouds 4.4 Â· noise ~0.1 â€” all R8</td></tr>
+  <tr><td>Network payload (textures)</td><td class="num">â‰ˆ 1.46 MB</td><td>lights 468k Â· land 393k Â· clouds 431k Â· borders 166k</td></tr>
+  <tr><td>Draw calls / frame</td><td class="num">~18</td><td>opaque: earth + 6 dots Â· transparent: halo, shell, 5 arcs, 5 pulses</td></tr>
+  <tr><td>Earth fragment taps</td><td class="num">10</td><td>landÃ—4 (bicubic) Â· lightsÃ—2 Â· noiseÃ—2 Â· bordersÃ—1 Â· cloudsÃ—1</td></tr>
+  <tr><td>Cloud shell taps</td><td class="num">5</td><td>deck Â· veil Â· envelope (mip) Â· grain Â· self-shade â€” on every covered fragment</td></tr>
+  <tr><td>Halo fragment</td><td class="num">0 taps</td><td>pure ALU, but the quad now spans 2.5 planet radii of blended fill</td></tr>
+  <tr><td>Frames rendered, parked showcase</td><td class="num warn">60/s</td><td>was 0/s before the drift change â€” see F3</td></tr>
+  <tr><td>Marker messages, worker â†’ main</td><td class="num warn">60/s</td><td>posted per drawn frame even when nothing moved â€” see F5</td></tr>
+</table></div>
+
+<h2 id="flaws"><span class="no">03</span>Flaws &amp; issues</h2>
+<p class="lede">Everything found, ordered by what it costs. File references are to the shipped code at 624453e.</p>
+
+<h3>Resilience</h3>
+<div class="card">
+  <h4><span class="id">F1</span> Texture failure strands a black hero <span class="sev crit">critical</span></h4>
+  <p><code>earth-scene.ts:270</code> fires <code>void this.load()</code>. If any of the four fetches fails twice (one retry is the whole policy), the <code>Promise.all</code> rejection is swallowed, <code>onReady</code> never fires, the loading screen gives up at MAX_WAIT and reveals a hero containing only the galaxy CSS. The capability-gate fallback image never engages â€” it only guards the <em>probe</em>, not the load.</p>
+  <p class="fix"><b>Fix:</b> wrap <code>load()</code>; on terminal failure post a new <code>error</code> protocol message â†’ Earth3D tears down the canvas, mounts the same <code>hero-fallback.webp</code> backdrop GlobeField uses, and calls <code>markHeroReady()</code> so the loader lifts on time. Wire <code>onShaderError</code> into the same path: a compile failure today logs loudly and shows nothing.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F2</span> Worker construction is uncaught <span class="sev high">high</span></h4>
+  <p><code>Earth3D.tsx</code> calls <code>new Worker(â€¦)</code> and <code>transferControlToOffscreen()</code> bare. A CSP with <code>worker-src</code> restrictions, an extension interfering, or an exotic embedder throws synchronously â€” the whole effect dies and no globe <em>and no fallback</em> renders, even though a perfectly good main-thread path sits in the else branch.</p>
+  <p class="fix"><b>Fix:</b> try/catch around worker creation + transfer; on failure, fall through to the main-thread scene path. Three lines, an entire class of environment failures absorbed.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F4</span> The fallback image shows a dead design <span class="sev high">high</span></h4>
+  <p><code>public/textures/hero-fallback.webp</code> was baked before the blue rebrand, the cloud shell, and the entire lighting arc. Every gated visitor (data-saver, 2 cores, no WebGL â€” a real slice in the export markets) sees a planet that no longer exists, and F1's fix will send failures there too.</p>
+  <p class="fix"><b>Fix:</b> regenerate from a headless capture of the finished, tuned globe; add a <code>npm run fallback</code> script so it can never silently go stale again after future tuning.</p>
+</div>
+
+<h3>Performance</h3>
+<div class="card">
+  <h4><span class="id">F3</span> The idle skip is dead â€” the GPU never rests <span class="sev high">high</span></h4>
+  <p>The cloud drift sets <code>needsDraw = true</code> every frame whenever motion is allowed, and motion is now always allowed. The carefully built dirty-check renders every frame at display rate in both states, forever. But the drift it is repainting for moves the deck at <b>~1.7 px/s</b> in the showcase â€” a 60 Hz repaint of a 2 px/s phenomenon.</p>
+  <p class="fix"><b>Fix:</b> an adaptive draw cadence in place of the boolean: display-rate while interacting, touring or scrubbing; ~8 Hz while parked with only drift alive; 0 when the tab is hidden or the hero is off-screen (already handled). Same visual result, roughly 85% fewer parked-state frames â€” this is the battery of every laptop that sits on the section view.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F5</span> Marker messages at 60 Hz for a static picture <span class="sev med">medium</span></h4>
+  <p><code>reportMarkers</code> posts a six-object structured clone every drawn frame; the change-detection that would suppress identical frames lives on the <em>receiving</em> side (<code>Earth3D.applyMarkers</code> write dedup). The message itself is the cost.</p>
+  <p class="fix"><b>Fix:</b> move the per-marker delta check (Â±0.5 px) into the worker and post only changed frames. Parked showcase â†’ zero messages.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F6</span> Pointer moves forwarded unthrottled <span class="sev low">low</span></h4>
+  <p>Every <code>pointermove</code> posts to the worker â€” 120â€“240 Hz on high-rate mice and pens, all but one per frame wasted since the scene only integrates the latest x.</p>
+  <p class="fix"><b>Fix:</b> coalesce to one message per animation frame in Earth3D.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F16</span> Bicubic land sampling runs at the ball view too <span class="sev med">medium</span></h4>
+  <p>The 4-tap B-spline reconstruction exists to fix <em>magnification</em> blur at the entry crop. In the showcase the land texture is minified â€” bicubic adds nothing there but still costs 4 taps on every fragment, every frame (and F3 made that every frame literal).</p>
+  <p class="fix"><b>Fix:</b> branch on <code>fwidth(vUv)</code>: texel footprint â‰¥ 1 screen pixel â†’ single bilinear tap. Spatially coherent branch, near-zero divergence cost, âˆ’3 taps across the whole disc in the state the page spends most of its life in.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F14</span> Cloud shell pays full price over clear sky <span class="sev med">medium</span></h4>
+  <p>Roughly half the shell's fragments are clear ocean, but all five taps and the full lighting path run before the alpha test discards them.</p>
+  <p class="fix"><b>Fix:</b> early-out after the first (deck) tap when <code>cl</code> sits safely below every threshold that could produce coverage â€” veil included via a conservative margin. Saves ~4 taps on ~half the shell's area.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F15</span> The halo blends 2.5 radii of mostly-nothing <span class="sev med">medium</span></h4>
+  <p>Letting the light spread (correct call) made the quad huge; at the entry crop it covers most of the viewport, and every fragment pays the blend stage even where the compressed alpha is far below one display step.</p>
+  <p class="fix"><b>Fix:</b> <code>if (aC &lt; 0.002) discard;</code> after compression â€” skips raster output on the dead area while the visible gradient (protected by the dither) is untouched.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F17</span> Anisotropy 8 on the 6K lights map <span class="sev low">low</span></h4>
+  <p>The lights texture is the largest resource in the scene and is sampled twice per fragment with aniso 8 â€” up to 8 sub-samples per tap at exactly the grazing angles the whole cap sits at. City dots survive aniso 4 visually.</p>
+  <p class="fix"><b>Fix:</b> trial aniso 4 for the lights map only, golden-frame diff to confirm; keep 8 for land where coastline crispness is the point.</p>
+</div>
+
+<h3>Structure</h3>
+<div class="card">
+  <h4><span class="id">F10</span> earth-scene.ts is a 1,059-line god class <span class="sev med">medium</span></h4>
+  <p>Motion state machine (drag, seek, tour, blend), resolution governor, frame-time EMA, asset pipeline, three material definitions, marker projection, tuning application and the halo builder in one class. Every feature request for a month has patched this file; review diffs are getting long and constants for one concern sit next to another's.</p>
+  <p class="fix"><b>Fix:</b> the module split in Â§05. Composition root stays ~250 lines; each concern gets a file, a surface and its own comments.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F8</span> Duplicated uniform state across materials <span class="sev med">medium</span></h4>
+  <p><code>uCloudShift</code> is written to two materials by hand every frame; <code>uSun</code> lives in two materials plus a third derived <code>uSunDir</code>; <code>uTermLo/Hi</code>, <code>uCloudAmt</code> exist twice. setTune papers over it, but the sync is discipline, not structure â€” the cloud/shadow lockstep bug class exists <em>because</em> of this.</p>
+  <p class="fix"><b>Fix:</b> build one shared uniform table from TUNE (<code>sky-state.ts</code>) and hand the <em>same</em> <code>{ value }</code> object references to every material that declares the name. One write, everywhere, by construction. three.js supports shared uniform objects natively.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F7</span> uLandTexel hardcodes the bake resolution <span class="sev low">low</span></h4>
+  <p><code>{ value: new Vector2(1/5120, 1/2560) }</code> â€” change SIZES in the bake script and the bicubic filter silently degrades with no error anywhere.</p>
+  <p class="fix"><b>Fix:</b> set it from <code>bitmap.width/height</code> at load time; delete the constant.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F9</span> The resolution governor only ratchets down <span class="sev low">low</span></h4>
+  <p>Sticky-for-the-session was the right anti-thrash call, but a laptop that briefly thermal-throttled (or ran on battery for a minute) is stuck at 1.25Ã— until reload.</p>
+  <p class="fix"><b>Fix:</b> one upward probe per session after 30 s of sustained &lt;12 ms frames; revert within 250 ms if the probe fails. Bounded, thrash-free.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F12</span> TunePanel ships in the production bundle <span class="sev low">low</span></h4>
+  <p>Runtime-gated but always parsed on the home page (~9 kB + schema).</p>
+  <p class="fix"><b>Fix:</b> check the gate first, then <code>import()</code> the panel body on demand.</p>
+</div>
+<div class="card">
+  <h4><span class="id">F11</span> No motion escape hatch remains <span class="sev low">low</span></h4>
+  <p>Ignoring <code>prefers-reduced-motion</code> was the right product call (Windows performance mode lies), but it removed the only brake genuinely motion-sensitive visitors had.</p>
+  <p class="fix"><b>Fix (later, cheap):</b> a small "pause motion" control in the footer or dock that flips the scene's motion flag at runtime. Not urgent; noted so it isn't forgotten.</p>
+</div>
+
+<h2 id="opt"><span class="no">04</span>Optimizations beyond the fixes</h2>
+<p class="lede">Each independent, each measurable, ordered by value.</p>
+<div class="tblwrap"><table>
+  <tr><th>ID</th><th>What</th><th>Win</th><th>Cost / risk</th></tr>
+  <tr><td class="num">O1</td><td><b>KTX2 / Basis compressed textures</b> â€” the standing P3. Transcode to BC4/EAC-R single channel at build; runtime picks KTX2 when supported, current R8 path stays as the fallback.</td><td class="num">GPU 58â†’~15 MB, bandwidth Ã·4</td><td>~250 kB transcoder, two load paths, border-line quality check. Mobile thermals are the payoff. Deferred by owner â€” stays on the list.</td></tr>
+  <tr><td class="num">O2</td><td><b>Golden-frame regression harness</b> â€” promote the ad-hoc screenshot scripts into <code>scripts/verify-globe.mjs</code>: boots dev server if needed, captures entry + showcase + crest crops, pixelmatch against committed goldens with a threshold, wired into a <code>verify</code> npm script.</td><td class="num">refactor safety</td><td>Half a day. This is what makes phases 3â€“5 provably visual no-ops.</td></tr>
+  <tr><td class="num">O3</td><td><b>RG8 cloud texture with a baked height channel</b> â€” real per-pixel altitude instead of the blurred-mip proxy: sharper strata lighting, shadow length scaling with cloud height.</td><td class="num">quality</td><td>+3.3 MB GPU, bake rework. Optional; only if the look plateaus.</td></tr>
+  <tr><td class="num">O4</td><td><b>Lights map trial at 5120</b> â€” the crispness pass carried most of the 6144 win; one bake + diff decides.</td><td class="num">âˆ’6 MB GPU, âˆ’90 kB wire</td><td>One screenshot comparison; revert if cores soften.</td></tr>
+  <tr><td class="num">O5</td><td><b>Abortable loads</b> â€” pass AbortController through fetchBitmap; dispose during load currently lets four fetches run to completion in a dead worker.</td><td class="num">hygiene</td><td>Trivial with the assets module in place.</td></tr>
+</table></div>
+
+<h2 id="arch"><span class="no">05</span>Refactoring architecture</h2>
+<p class="lede">The scene becomes a composition root; every concern gets one file and one job.</p>
+<div class="card" style="font-family: var(--mono); font-size: 13px; line-height: 1.9; color: var(--dim);">
+components/globe/<br>
+â”œâ”€ config.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">framing, path, palette â€” unchanged</span><br>
+â”œâ”€ tune.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">parameter schema â€” unchanged</span><br>
+â”œâ”€ protocol.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">+ error message, + marker delta frames</span><br>
+â”œâ”€ shaders.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">+ early-outs (F14/F15/F16)</span><br>
+â”œâ”€ textures.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">+ abort support</span><br>
+â”œâ”€ earth-scene.ts&nbsp;&nbsp;<span style="color:var(--gold)">composition root, target â‰¤ 300 lines</span><br>
+â””â”€ scene/<br>
+&nbsp;&nbsp;&nbsp;â”œâ”€ sky-state.ts&nbsp;&nbsp;<span style="color:var(--faint)">ONE shared uniform table from TUNE (kills F8); setTune lives here</span><br>
+&nbsp;&nbsp;&nbsp;â”œâ”€ materials.ts&nbsp;&nbsp;<span style="color:var(--faint)">earth / cloud / halo builders consuming sky-state</span><br>
+&nbsp;&nbsp;&nbsp;â”œâ”€ motion.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">spin, drag, seek, tour, blend, drift â€” pure state machine, unit-testable</span><br>
+&nbsp;&nbsp;&nbsp;â”œâ”€ governor.ts&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">DPR ladder + frame EMA + draw cadence (F3, F9)</span><br>
+&nbsp;&nbsp;&nbsp;â”œâ”€ markers.ts&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">projection + worker-side dedup (F5)</span><br>
+&nbsp;&nbsp;&nbsp;â””â”€ assets.ts&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--faint)">load pipeline, progress weights, retry, error surface (F1)</span>
+</div>
+<p>Three properties the split must preserve, stated as invariants: <b>worker-safe</b> (no DOM API anywhere under <code>scene/</code>), <b>tune-complete</b> (every module reads parameters through sky-state, never a literal), and <b>visually identical</b> (golden frames byte-close before/after â€” O2 lands first for exactly this reason).</p>
+
+<h2 id="phases"><span class="no">06</span>Execution phases</h2>
+<p class="lede">Each phase is one commit, verified before the next begins. Nothing here changes the look; the plan is optimization, resilience and structure.</p>
+
+<div class="phase"><span class="tag">PHASE 0 Â· half a day</span>
+  <h4>The harness</h4>
+  <p>O2: golden-frame capture + diff script, goldens committed. Baseline timings recorded (frame time at entry/showcase, message rates) so every later phase has a before/after number.</p>
+  <p class="verify"><b>Verify:</b> harness flags an intentionally broken constant, passes on clean tree.</p>
+</div>
+<div class="phase"><span class="tag">PHASE 1 Â· one day</span>
+  <h4>The safety net â€” F1, F2, F4</h4>
+  <p>Error spine end to end: load failure â†’ protocol error â†’ fallback image + loader release; worker construction guarded with main-thread fallthrough; shader compile failure joins the same path; fallback image regenerated from the current design with a repeatable script.</p>
+  <p class="verify"><b>Verify:</b> headless runs with (a) textures 404'd, (b) Worker constructor stubbed to throw, (c) a poisoned shader â€” all three must land on the fallback image with the loader lifting normally.</p>
+</div>
+<div class="phase"><span class="tag">PHASE 2 Â· one day</span>
+  <h4>The perf floor â€” F3, F5, F6</h4>
+  <p>Draw cadence replaces the dirty boolean; marker dedup moves into the worker; pointer coalescing. The showcase drops from 60 fps to ~8 while looking identical (the drift moves 2 px/s there).</p>
+  <p class="verify"><b>Verify:</b> frame counter logs ~8/s parked and 60/s during drag/tour; golden frames unchanged; drift-check script still shows the deck moving.</p>
+</div>
+<div class="phase"><span class="tag">PHASE 3 Â· one to two days</span>
+  <h4>The split â€” F8, F10, F7, O5</h4>
+  <p>Mechanical extraction into <code>scene/</code> with the shared uniform table as the first move (it deletes the double-write sites the split would otherwise have to preserve). Abortable loads ride along inside assets.ts. No behavior change permitted.</p>
+  <p class="verify"><b>Verify:</b> goldens pixel-identical; tsc/lint; tune panel still drives every parameter; worker and fallback paths both boot.</p>
+</div>
+<div class="phase"><span class="tag">PHASE 4 Â· one day</span>
+  <h4>Shader micro-optimizations â€” F14, F15, F16, F17</h4>
+  <p>Early-outs and the bicubic/bilinear branch, one commit per change, each gated on its golden diff plus a frame-time delta at both scroll states.</p>
+  <p class="verify"><b>Verify:</b> goldens within dither tolerance; measured GPU frame time at showcase drops or the change reverts.</p>
+</div>
+<div class="phase"><span class="tag">PHASE 5 Â· half a day</span>
+  <h4>Housekeeping â€” F9, F12, F11</h4>
+  <p>Governor recovery probe; TunePanel lazy import; the motion pause affordance if wanted (owner's call on placement).</p>
+  <p class="verify"><b>Verify:</b> probe observable in logs on a throttled run; production bundle drops the panel chunk.</p>
+</div>
+<div class="phase"><span class="tag">PHASE 6 Â· opt-in, deferred</span>
+  <h4>The big levers â€” O1, O3, O4</h4>
+  <p>KTX2 with the R8 fallback path (the mobile-thermals win), the RG height channel if the cloud look plateaus, the 5120 lights trial. Each is its own decision point; none blocks the others.</p>
+</div>
+
+<h2 id="fallbacks"><span class="no">07</span>Fallback matrix</h2>
+<p class="lede">Every environment the system can meet, what happens today, and what happens after Phase 1.</p>
+<div class="tblwrap"><table>
+  <tr><th>Condition</th><th>Today</th><th>After plan</th></tr>
+  <tr><td>Data saver / 2Gâ€“3G / â‰¤2 cores / no WebGL</td><td class="good">static fallback image</td><td class="good">same, but the image is current (F4)</td></tr>
+  <tr><td>No OffscreenCanvas (old Safari)</td><td class="good">main-thread scene</td><td class="good">unchanged</td></tr>
+  <tr><td>Worker blocked (CSP, embedder)</td><td class="warn">effect crashes, nothing renders</td><td class="good">main-thread scene (F2)</td></tr>
+  <tr><td>Texture fetch fails twice</td><td class="warn">black hero after 8 s</td><td class="good">fallback image, loader on time (F1)</td></tr>
+  <tr><td>Shader compile failure</td><td class="warn">console error, missing planet</td><td class="good">fallback image (F1)</td></tr>
+  <tr><td>WebGL context loss</td><td class="good">auto-restore + redraw</td><td class="good">unchanged</td></tr>
+  <tr><td>Tab hidden / hero off-screen</td><td class="good">loop parked (rAF throttle / IO)</td><td class="good">unchanged</td></tr>
+  <tr><td>Windows performance mode (reduce flag)</td><td class="good">full experience (owner decision)</td><td class="good">unchanged + optional pause control (F11)</td></tr>
+  <tr><td>Weak GPU</td><td class="good">DPR ladder steps down, sticky</td><td class="good">ladder + recovery probe (F9)</td></tr>
+  <tr><td>Slow first paint</td><td class="good">loader holds to 8 s max, min 800 ms</td><td class="good">unchanged</td></tr>
+</table></div>
+
+<h2 id="not"><span class="no">08</span>Deliberately not doing</h2>
+<ul>
+  <li><b>react-three-fiber migration</b> â€” the plain-three worker architecture is the reason scrolling never contends with rendering; R3F would put React in the frame path and forfeit the worker.</li>
+  <li><b>Post-processing bloom</b> â€” the analytic halo is cheaper, resolution-independent, and now fully tunable; a bloom pass would cost a render target and re-open every "shape of the glow" battle at lower controllability.</li>
+  <li><b>HDR / tone-mapped pipeline</b> â€” the LDR compression tricks (soft saturation, intensity-tied whitening) already deliver the look at zero pass cost.</li>
+  <li><b>MSAA removal at high DPR</b> â€” trialled once, failed on real hardware below 2Ã—; closed.</li>
+  <li><b>SDF coastlines</b> â€” rejected in review previously; bicubic + one-source cartography is the settled answer.</li>
+  <li><b>Merging the cloud shell back into the surface</b> â€” one draw cheaper, but it is precisely the flat look that was rejected twice; the shell stays.</li>
+</ul>
+
+<div class="note"><b>Executed.</b> Phases 0â€“5 are shipped, one commit each, goldens passing throughout: <span class="m">91262e8</span> harness Â· <span class="m">d3938ac</span> safety net Â· <span class="m">5beec8f</span> perf floor Â· <span class="m">00547d7</span> split + shared uniforms Â· <span class="m">e982cbe</span> shader micro-opts Â· <span class="m">dd87b8a</span> governor probe + lazy panel. Two documented deviations: motion/governor stayed in the composition root (801 lines, down from 1,059 â€” extraction added indirection without testability at their size), and F11's pause control awaits an owner call on placement. Phase 6 (KTX2, RG cloud height, 5120 lights) remains opt-in and unstarted.</div>
+</div>
+

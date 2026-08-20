@@ -1,0 +1,198 @@
+﻿<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth Visual Frontier</title>
+<style>
+  :root {
+    --bg: #07090e; --panel: #0d1118; --line: #1c2433;
+    --text: #c9d4e3; --dim: #7d8aa0; --faint: #55617a; --head: #eef3fa;
+    --gold: #f0b849; --blue: #5fb0ff;
+    --pro: #69db7c; --con: #ff8787;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter Tight", "Segoe UI", system-ui, sans-serif; line-height: 1.6; margin: 0; padding: 0 20px 90px; font-size: 15.5px; }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { padding: 64px 0 30px; border-bottom: 1px solid var(--line); }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); margin: 0 0 14px; }
+  h1 { font-family: Georgia, serif; font-size: clamp(30px, 5vw, 44px); font-weight: 500; color: var(--head); margin: 0 0 12px; letter-spacing: -0.015em; }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  h2 { font-family: Georgia, serif; font-weight: 500; color: var(--head); font-size: 23px; margin: 54px 0 8px; }
+  h2 .no { color: var(--gold); font-family: var(--mono); font-size: 15px; margin-right: 10px; }
+  p { margin: 12px 0; }
+  .lede { color: var(--dim); font-size: 15px; margin: 4px 0 20px; }
+  code, .m { font-family: var(--mono); font-size: 0.85em; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: #a8c4e6; white-space: nowrap; }
+  .item { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 16px 0; }
+  .item h3 { margin: 0 0 4px; color: var(--head); font-size: 16px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .id { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .item .what { color: var(--dim); font-size: 14px; margin: 4px 0 10px; }
+  table.pc { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 8px 0 2px; }
+  table.pc td { border-bottom: 1px solid #141a26; padding: 6px 10px 6px 0; vertical-align: top; }
+  table.pc td:first-child { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; width: 62px; padding-top: 8px; }
+  td.p { color: var(--pro); } td.c { color: var(--con); }
+  .verdict { margin-top: 10px; font-size: 13.5px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 9px; }
+  .verdict b { color: var(--gold); }
+  .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; border-radius: 999px; padding: 2px 9px; text-transform: uppercase; font-weight: 600; }
+  .tag.do { background: rgba(105,219,124,.1); color: var(--pro); border: 1px solid rgba(105,219,124,.3); }
+  .tag.maybe { background: rgba(240,184,73,.1); color: var(--gold); border: 1px solid rgba(240,184,73,.3); }
+  .tag.no { background: rgba(255,135,135,.1); color: var(--con); border: 1px solid rgba(255,135,135,.3); }
+  .tblwrap { overflow-x: auto; margin: 14px 0; }
+  table.plain { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  table.plain th { text-align: left; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 500; border-bottom: 1px solid var(--line); padding: 8px 12px 8px 0; }
+  table.plain td { border-bottom: 1px solid #141a26; padding: 7px 12px 7px 0; }
+  .note { border: 1px solid rgba(240,184,73,.25); background: rgba(240,184,73,.05); border-radius: 10px; padding: 14px 18px; margin: 18px 0; font-size: 14.5px; }
+  .note b { color: var(--gold); }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">RS Composite Â· Globe Engine Â· Audit IV</p>
+  <h1>Earth Visual Frontier</h1>
+  <p class="meta">2026-08-19 Â· everything that could still improve the picture: lighting, textures, source maps Â· availability verified by live probe where stated Â· report only, nothing changed</p>
+</header>
+
+<h2><span class="no">01</span>The shape of the answer</h2>
+<p>Yes â€” a few genuine visual levers remain, and one of them is the single biggest untouched opportunity in the whole system: <b>the planet has never been lit by its own terrain</b>. Everything else on this list is either a source-data refresh (several verified available today), a taste flourish, or a technique that would cost more than it shows. One overriding constraint colours every verdict: <b>you are about to hand-tune the planet</b>, and anything that changes what the sliders mean belongs before that session or not at all.</p>
+
+<h2><span class="no">02</span>Lighting</h2>
+
+<div class="item">
+  <h3><span class="id">V1</span> Relief-lit terrain â€” a normal map from real elevation <span class="tag do">top recommendation</span></h3>
+  <p class="what">The land is currently a flat colour whose only lighting variation is the sun's angle to the <em>sphere</em>. NASA hosts the GEBCO elevation companion to our bathymetry (<span class="m">gebco_08_rev_elev 21600Ã—10800</span> â€” verified reachable today, 17.6 MB). Bake it to a normal map, add one tap and a few ALU in the earth shader, and the grazing hero sun rakes across the Himalaya, the Andes, the Ethiopian highlands â€” ridges catch light, valleys fall dark, and the entry crop (which stares at the Himalaya) gains real sculpture. Same trick shades the ocean floor's ridges through the shallows.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>The largest visible upgrade left: terrain sculpture under a grazing sun is exactly what this camera angle is built to show. Uses the sister dataset of maps already in the bake, same licence (public domain). Strength is one new slider, so it tunes with everything else. Zero effect on any existing tuned value when set to 0.</td></tr>
+    <tr><td class="c">Cons</td><td>+1 texture: RG normal at 4096Ã—2048 â‰ˆ +22 MB GPU with mips, ~400â€“600 kB wire. +1 tap per fragment. A bake step (height â†’ normals) to write and verify. Overdone it reads as embossed plastic â€” needs restraint and one careful tuning pass, ideally folded into your session.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> do it, before the tuning session, defaulted subtle. Effort: half a day including goldens.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">V2</span> City-light temperature variance <span class="tag maybe">cheap, tasteful</span></h3>
+  <p class="what">Real night lights aren't one colour: dense modern cores burn LED-white, sprawl burns sodium-gold. One shader line â€” mix the city colour toward white as the light intensity peaks â€” gives conurbation centres a hot heart inside the gold.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Near-free (no data, no tap, two tunables). Adds depth and realism to the night side, which is half of every framing. Keeps the brand gold as the dominant note; white only at the very cores.</td></tr>
+    <tr><td class="c">Cons</td><td>Dilutes the deliberate single-gold branding if pushed. One more pair of sliders on an already long panel. Subtle enough that it may vanish at the ball view.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> worth a try behind a slider defaulted gentle; instant revert if the gold suffers. Effort: under an hour.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">V3</span> Physically-based atmospheric scattering (Bruneton-style LUT) <span class="tag no">not recommended</span></h3>
+  <p class="what">Replace the analytic halo, rim and dusk tints with precomputed single-scattering: true Rayleigh blue, true terminator orange, correct at any sun angle.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>The physically correct sky; graceful under any future sun animation; one system instead of five tuned terms.</td></tr>
+    <tr><td class="c">Cons</td><td>Large implementation (LUT bake, new pipeline); the sun here never moves, which deletes its main advantage; it would replace the halo/rim/dusk stack you spent a week directing into exactly the reference look â€” and every one of those sliders would stop existing. High risk, low visible delta over the current tuned result.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> skip. The analytic stack is the product of your art direction; physics would negotiate with it.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">V4</span> Aurora at the poles <span class="tag maybe">flourish</span></h3>
+  <p class="what">A faint animated curtain of green-teal ribboning over the Arctic night side â€” procedural noise on a thin polar band, hero only.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>High wow-per-effort as showpieces go; lives on the dark side where the frame has room; the palette (teal over gold lights) already belongs to the site.</td></tr>
+    <tr><td class="c">Cons</td><td>Kitsch risk is real â€” one notch too strong and the planet becomes a screensaver. Animated, so it re-opens the parked showcase's 8 Hz cadence question if visible there. Another tuned system to maintain.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> optional dessert, only after tuning settles, hero-only, whisper-subtle. Effort: a day with taste iterations.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">V5</span> Sun-point lens ghosts <span class="tag no">not recommended</span></h3>
+  <p class="what">Small aperture-ghost dots trailing from the crest spark, as a camera would render them.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Sells the "photographed" conceit; trivial ALU.</td></tr>
+    <tr><td class="c">Cons</td><td>Reads as an Instagram filter more often than as optics; fights the clean spark you just spent four review rounds perfecting; screen-space artifacts pinned to a world-space light invite new "shape of the light" complaints.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> skip. The spark's restraint is its quality.</p>
+</div>
+
+<h2><span class="no">03</span>Source maps â€” what newer or better data exists</h2>
+
+<div class="item">
+  <h3><span class="id">M1</span> Natural Earth III cloud texture (Tom Patterson, public domain) <span class="tag do">recommended</span></h3>
+  <p class="what">Our cloud source is NASA's classic <span class="m">cloud_combined_8192</span> (early-2000s MODIS composite). Patterson's Natural Earth III texture set (shadedrelief.com â€” page verified reachable) includes a hand-retouched cloud map at up to 16,200 px: seams cleaned, poles repaired, storm structure preserved, made specifically for texture-mapping globes.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Nearly 2Ã— the source resolution feeding the fBm-enhanced bake â†’ sharper deck edges at the entry crop, and headroom to raise the baked size to 3072â€“4096. Cleaner poles than the NASA composite (ours hides them, but the showcase grazes the Arctic). Public domain, bake-time only, zero runtime cost at equal bake size.</td></tr>
+    <tr><td class="c">Cons</td><td>Different weather that day: every cloud system moves, so the deck you've been staring at for a week changes shape â€” do it before tuning or not at all. Baked size above 2560 costs wire (~+250 kB at 3072) and GPU (+2â€“4 MB). The exact file URL needs confirming on the page at implementation time.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> adopt, bake at 3072, before tuning. Effort: an hour plus golden re-record.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">M2</span> Natural Earth 10m vectors for borders and coasts <span class="tag do">recommended</span></h3>
+  <p class="what">The border SDF and the land/water decision both build from Natural Earth <b>50m</b>. The 10m edition (verified: <span class="m">naciscdn.org â€¦/10m/â€¦ 2.9 MB</span>) carries five times the coastline and border detail.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Crisper coastline wiggle exactly where the SDF and the bicubic land filter already preserve detail â€” fjords, deltas, the Bangladesh coast itself. Bake-time only: file sizes and GPU cost unchanged (same raster/SDF dimensions). One dependency swap in two functions.</td></tr>
+    <tr><td class="c">Cons</td><td>Larger topojson slows the bake by seconds (irrelevant). At 4096 wide, some 10m detail is below texel size â€” the gain concentrates at the entry crop. Disputed-boundary styling differs slightly between editions; needs one eyeball pass over Kashmir-type lines.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> adopt; it makes data you already render honestly sharper. Effort: an hour.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">M3</span> Blue Marble monthly variant (seasonal look) <span class="tag maybe">art direction choice</span></h3>
+  <p class="what">Our land-brightness source is the December 2004 Blue Marble (deep northern snow). The monthly series exists (verified: <span class="m">world.200412 21600Ã—10800</span> reachable; other months under adjacent records). A September world has minimal snow: greener Siberia/Canada, ice confined to Greenland proper.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Choosing the month chooses how much of the north reads as ice now that ice is actually rendered â€” September would confine the new ice caps to true ice sheets and quiet the tundra. It's a one-line URL swap feeding luminance only.</td></tr>
+    <tr><td class="c">Cons</td><td>Land brightness feeds the ice gate, the city-light snow suppression and the packed land channel at once â€” a month swap shifts all three and their tuned thresholds. December's fuller snow is arguably prettier for an ice-capped look. A re-verify of ice/desert gates comes with it.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> your call as art direction, decided before tuning. Zero effort to try both and screenshot-compare.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">M4</span> Black Marble 2023 (VIIRS VNP46A4, 500 m) <span class="tag no">not now</span></h3>
+  <p class="what">Newer, sharper night lights than the 2016 composite exist as yearly 500 m science products via NASA LAADS.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Seven more years of urban growth (notably South Asia â€” Bangladesh's own sprawl is visibly larger); finer point sources; would feed the existing bake unchanged.</td></tr>
+    <tr><td class="c">Cons</td><td>Distribution is authenticated GeoTIFF tiles, not a fetchable JPG â€” the bake's zero-auth reproducibility breaks. Our 13,500 px source already out-resolves the 5120 bake, so sharpness wouldn't change, only content. City-pattern changes would subtly shift the night side you've tuned against.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> revisit only if the night side ever needs a content refresh; not worth breaking the one-command bake today.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">M5</span> GEBCO 2024 / ETOPO 2022 bathymetry <span class="tag no">not worth it</span></h3>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Fifteen years more survey data; sub-ice topography.</td></tr>
+    <tr><td class="c">Cons</td><td>Distributed as multi-GB netCDF grids needing GDAL, versus the rendered PNG we fetch today; every structure visible at 5120 px is already in the 2008 render. Effort high, visible delta ~zero.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> skip. Our depth ramp is aesthetic, not hydrographic.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">M6</span> Sentinel-2 cloudless true-colour mosaic <span class="tag no">licensing risk</span></h3>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>The most beautiful whole-earth imagery in existence (10 m source).</td></tr>
+    <tr><td class="c">Cons</td><td>EOX's mosaics carry non-commercial / attribution-share-alike terms in most editions â€” wrong for a company site; and this planet deliberately has no albedo map, so it would only feed luminance anyway. Licence review alone outweighs the gain.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> skip on licence; the generated-colour art direction doesn't want it anyway.</p>
+</div>
+
+<div class="item">
+  <h3><span class="id">M7</span> Real star-survey backdrop (ESO Milky Way / NASA SVS starmap, CC-BY) <span class="tag maybe">taste</span></h3>
+  <p class="what">The backdrop is your supplied galaxy plate, hue-shifted to the brand. Survey-based starmaps (16K, attribution-only licences) could replace it with an astronomically real sky.</p>
+  <table class="pc">
+    <tr><td class="p">Pros</td><td>Real constellations and Milky Way structure; attribution is a footer line; same zero-runtime CSS treatment.</td></tr>
+    <tr><td class="c">Cons</td><td>The current plate was a deliberate choice you made and its nebula colours are part of the halo's tuned context (the purple saga was fought against this exact backdrop). Swapping re-opens that. Real skies are busier and can fight the planet.</td></tr>
+  </table>
+  <p class="verdict"><b>Verdict:</b> only if you ever tire of the current plate; bring it in through the same hue-grade pipeline.</p>
+</div>
+
+<h2><span class="no">04</span>Texture budget â€” same data, more pixels</h2>
+<div class="tblwrap"><table class="plain">
+  <tr><th>Map</th><th>Now</th><th>Headroom</th><th>Worth it?</th></tr>
+  <tr><td>Clouds</td><td>2560Â² â„ 431 kB</td><td>source 8K (16K with M1)</td><td class="m">Yes with M1 â†’ 3072 (+~250 kB, +2 MB GPU): deck edges are the most magnified soft feature left</td></tr>
+  <tr><td>Land</td><td>5120 â„ 393 kB</td><td>source 21600</td><td class="m">Marginal: bicubic + SDF coasts already carry the crispness; 6144 costs +8 MB GPU for little</td></tr>
+  <tr><td>Lights</td><td>5120 â„ 337 kB</td><td>source 13500</td><td class="m">No â€” deliberately stepped DOWN from 6144 this week with proof of visual parity</td></tr>
+  <tr><td>Borders SDF</td><td>4096 â„ 637 kB</td><td>vector source</td><td class="m">No â€” SDF quality is resolution-independent by construction; 10m vectors (M2) are the lever</td></tr>
+</table></div>
+
+<h2><span class="no">05</span>Already parked, for completeness</h2>
+<p class="lede">Decided in earlier audits; listed so this report is the complete picture.</p>
+<div class="tblwrap"><table class="plain">
+  <tr><th>Item</th><th>Status</th></tr>
+  <tr><td>RG cloud height channel (true altitude instead of the blurred-mip proxy)</td><td>parked until after your tuning session â€” it changes what the cloud sliders mean</td></tr>
+  <tr><td>KTX2 compressed textures</td><td>closed under your no-quality-loss constraint</td></tr>
+  <tr><td>HDR pipeline, post-bloom, MSAA changes, WebGPU volumetrics</td><td>ruled out in Audit III Â§06 â€” cost exceeds what this page would feel</td></tr>
+</table></div>
+
+<h2><span class="no">06</span>If it were mine to choose</h2>
+<div class="note"><b>The shortlist, in order:</b> V1 relief-lit terrain (the one big lever), M2 10m vectors, M1 Patterson clouds at 3072 â€” all three land before your tuning session so you tune the final data, roughly one day total. V2 city-light temperature as a cheap experiment behind a slider. M3 is a taste decision to make with two screenshots side by side. Everything tagged red stays skipped for the reasons on its card. Say which cards to run and they'll be built goldens-gated like everything else.</div>
+</div>
+
