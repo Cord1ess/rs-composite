@@ -31,8 +31,10 @@ const browser = await puppeteer.launch({
 })
 const page = await browser.newPage()
 await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }])
+/* The capture seed: read by the scene's constructor, so the tour is frozen
+   before the first frame rather than a few hundred milliseconds in. */
 await page.evaluateOnNewDocument(() => {
-  localStorage.setItem('earth-tune-v1', JSON.stringify({ $tourSpin: 0, $cloudLag: 0 }))
+  localStorage.setItem('earth-tune-seed', JSON.stringify({ $tourSpin: 0, $cloudLag: 0 }))
 })
 await page.goto(process.env.GLOBE_URL ?? 'http://localhost:3000', {
   waitUntil: 'networkidle2',
@@ -49,22 +51,15 @@ await page.waitForFunction(
 )
 await new Promise((r) => setTimeout(r, 8000))
 
-/* The marker circles STAY in the bake: since the scene lost its baked-in
-   beads they are the only dots the design has. Their pulse rings animate
-   on wall clock, so they are frozen off; the ring is motion, the point is
-   the marker. */
-await page.addStyleTag({
-  content: '.marker-pulse::after { animation: none !important; opacity: 0 !important; }',
-})
-
 await page.evaluate(() => {
   const hide = (el) => {
     el.style.visibility = 'hidden'
   }
-  document.querySelectorAll('.hero-copy, .hero-network, .hero-scrim, .globe-leaders').forEach(hide)
-  /* Leader lines and the origin's text ride out; the marker layer itself
-     is part of the planet's look now. */
-  document.querySelectorAll('canvas ~ svg, .marker-origin-label').forEach(hide)
+  document.querySelectorAll('.hero-copy, .hero-network, .hero-scrim').forEach(hide)
+  /* The whole DOM marker layer: names and cards are chrome, and the dots
+     they used to carry are scene geometry now, so they bake in with the
+     planet by themselves. */
+  document.querySelectorAll('canvas ~ div, canvas ~ svg').forEach(hide)
   /* All fixed chrome: header, dev button, badges. */
   for (const el of document.body.querySelectorAll('*')) {
     if (getComputedStyle(el).position === 'fixed') hide(el)

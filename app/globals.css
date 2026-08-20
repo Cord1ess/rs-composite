@@ -374,12 +374,6 @@
     will-change: opacity, transform;
   }
 
-  /* Leader lines and market labels, last to arrive. */
-  .globe-leaders {
-    opacity: clamp(0, calc((var(--hp, 0) - 0.74) * 6), 1);
-    will-change: opacity;
-  }
-
   /* The scrim lifts as the globe shrinks, since the copy it protected is gone. */
   .hero-scrim {
     opacity: clamp(0.25, calc(1 - var(--hp, 0) * 1.1), 1);
@@ -744,50 +738,130 @@
 /* ----------------------------------------------------- globe markers */
 
 /*
-  The market markers on the globe: a small warm point with a pulse ring
-  breathing out of it. Pure compositor work in the DOM, so the parked
-  showcase keeps its idle skip — the canvas renders nothing while these
-  animate. Deliberately outside the reduced-motion block below: the globe's
-  presentation ignores that signal by owner decision (Windows performance
-  mode reports reduce and froze the centrepiece once already).
+  The dots and their ripples are GEOMETRY, in the scene, lying on the
+  sphere's own surface — see markerShader. A DOM overlay cannot do this job:
+  its positions cross the worker's message channel and land a frame behind
+  the picture, so during a drag or a fast scroll the markers slid off the
+  planet. What is left in the DOM is what the DOM does better: a generous
+  hit area, the country name and the detail card.
+
+  Everything below is positioned by the render loop through one wrapper
+  transform, so a moving globe costs no reconciles and no layout.
 */
-.marker-pulse {
+.globe-marker {
+  /* Flipped to auto by the loop while the marker faces the camera, which is
+     what switches its children off around the back of the planet: they
+     inherit rather than declare, so one write governs the whole marker. */
+  pointer-events: none;
+  will-change: transform;
+}
+
+.globe-marker-hit {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 5px;
-  height: 5px;
+  left: 0;
+  top: 0;
+  width: 46px;
+  height: 46px;
   transform: translate(-50%, -50%);
   border-radius: 9999px;
-  background: rgb(255 243 224 / 0.95);
-  box-shadow: 0 0 6px rgb(255 220 170 / 0.7);
+  background: transparent;
+  pointer-events: inherit;
+  transition: background-color 0.2s ease;
 }
 
-.marker-pulse::after {
-  content: '';
+/* Bangladesh carries a larger dot, so it gets a larger target. */
+.globe-marker-hit-lg {
+  width: 56px;
+  height: 56px;
+}
+
+.globe-marker-hit:hover,
+.globe-marker-hit:focus-visible {
+  background: rgb(255 255 255 / 0.08);
+  outline: none;
+}
+
+.globe-marker-name {
   position: absolute;
-  inset: -3px;
-  border-radius: 9999px;
-  border: 1px solid rgb(255 243 224 / 0.85);
-  animation: marker-ping 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-  animation-delay: inherit;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.9);
+  text-shadow:
+    0 1px 6px rgb(0 0 0 / 0.95),
+    0 0 18px rgb(0 0 0 / 0.75);
+  opacity: 0;
+  will-change: transform, opacity;
 }
 
-.marker-pulse-lg {
-  width: 7px;
-  height: 7px;
+.globe-marker-name span {
+  display: inline-block;
+  pointer-events: inherit;
 }
 
-@keyframes marker-ping {
-  0% {
-    transform: scale(0.55);
-    opacity: 0.9;
-  }
-  65%,
-  100% {
-    transform: scale(2.4);
-    opacity: 0;
-  }
+/*
+  The detail card. A dark tint rather than the site's clear glass: these
+  open over a lit limb, a cloud deck or a field of city lights, and the
+  translucent surface left the text unreadable against all three.
+
+  Always mounted, toggled by class. Mounting it on hover meant React tore
+  the subtree down and rebuilt it on every crossing, which is what read as
+  the card glitching in and out.
+*/
+.globe-card {
+  position: absolute;
+  /*
+    Above the marker, never beside it: the country name sits directly below
+    and a card to the side clipped its right half. Hiding the name instead
+    would be a trap — the name is itself a hover target, so hiding it drops
+    the hover, which closes the card, which shows the name again.
+  */
+  bottom: 26px;
+  z-index: 5;
+  width: 13.5rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  background: rgb(9 11 15 / 0.88);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  box-shadow:
+    0 20px 45px -14px rgb(0 0 0 / 0.95),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+  /* Never a drag blocker: the card is something to read, not to hit. */
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0s linear 0.16s;
+}
+
+.globe-card-lg {
+  width: 16rem;
+}
+
+/* Away from the middle of the frame, so a card never runs off the edge. */
+.globe-marker[data-side='right'] .globe-card {
+  left: 18px;
+}
+.globe-marker[data-side='left'] .globe-card {
+  right: 18px;
+}
+
+.globe-card.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0s;
 }
 
 /* ------------------------------------------------------- scroll cue */

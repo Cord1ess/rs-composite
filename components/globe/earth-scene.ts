@@ -18,9 +18,9 @@ import {
   Group,
   MathUtils,
   Mesh,
-  MeshBasicMaterial,
   PerspectiveCamera,
   PlaneGeometry,
+  Quaternion,
   Scene,
   ShaderMaterial,
   SphereGeometry,
@@ -50,13 +50,13 @@ import {
   toVector,
   vantageDip,
 } from './config'
-import { arcShader } from './shaders'
+import { arcShader, markerShader } from './shaders'
 import { makeNoiseTexture } from './textures'
 import { TUNE } from './tune'
 import { SkyState } from './scene/sky-state'
 import { buildCloudMaterial, buildEarthMaterial, buildHaloMaterial } from './scene/materials'
 import { prepareEarthMaps, type EarthBitmaps } from './scene/assets'
-import { MarkerProjector } from './scene/markers'
+import { MarkerProjector, RoutePicker } from './scene/markers'
 
 export type { MarkerFrame, ScenePlace } from './scene/markers'
 
@@ -75,6 +75,10 @@ export type EarthOptions = {
   /** Hero scroll progress, 0 to 1. Read once per frame, never through React. */
   getProgress: () => number
   onMarkers: (frames: MarkerFrame[]) => void
+  /** The route under the pointer changed. Hit testing happens here because
+      this is the side that owns the camera; the owner decides what a hover
+      means. */
+  onRouteHover?: (id: string | null) => void
   onReady: () => void
   /** The texture bitmaps, fetched by the OWNER on the main thread (audit
       III, A1: that is where the preload cache lives) and handed over here;
@@ -83,6 +87,42 @@ export type EarthOptions = {
   /** Terminal failure: assets unreachable after retry, or a shader refused
       to compile. The owner swaps in the static fallback. */
   onError?: (reason: string) => void
+  /**
+   * Tune values applied before the first frame.
+   *
+   * The dev panel's live channel cannot serve this purpose: it is a lazily
+   * compiled chunk, so its values land some milliseconds after the loop is
+   * already running, and anything the tour drifted in between is baked into
+   * the pose. That is fine for tuning and fatal for the golden harness,
+   * whose whole method is freezing the tour ($tourSpin 0) and comparing
+   * pixels — it was comparing frames frozen at different angles.
+   */
+  tune?: Record<string, number | [number, number, number]>
+}
+
+/** The axis a marker patch is built around: its own local +Z. */
+const PATCH_AXIS = new Vector3(0, 0, 1)
+
+/**
+ * A square patch of a sphere's surface, built in the tangent plane and then
+ * pushed onto the sphere.
+ *
+ * The mesh is placed at radius R along its own +Z, so a local vertex
+ * (x, y, z) lands at |R·n + u·x + v·y + n·z|, and setting that equal to R
+ * solves to z = √(R² − x² − y²) − R. Every vertex therefore sits exactly on
+ * the sphere: the decal curves with the planet with no gap at its edges and
+ * no z-fighting at its centre.
+ */
+function surfacePatch(halfWidth: number, radius: number): PlaneGeometry {
+  const geo = new PlaneGeometry(halfWidth * 2, halfWidth * 2, 6, 6)
+  const pos = geo.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    pos.setZ(i, Math.sqrt(Math.max(0, radius * radius - x * x - y * y)) - radius)
+  }
+  pos.needsUpdate = true
+  return geo
 }
 
 export class EarthScene {
@@ -92,12 +132,32 @@ export class EarthScene {
   private root = new Group()
   private tilt = new Group()
   private world = new Group()
-  private arcs: { mesh: Mesh; total: number; mat: ShaderMaterial }[] = []
+  private arcs: { id: string; mesh: Mesh; total: number; mat: ShaderMaterial }[] = []
+  /** The surface decals. One material each (three caches the program), so a
+      marker can pulse on its own phase and light up on its own hover. */
+  private markers: { id: string; mat: ShaderMaterial }[] = []
+  /** Shared across every marker material: one write moves them all. */
+  private markerTime = { value: 0 }
+  private markerPulse = { value: 1 }
+  /** How much of its patch each marker fills, so a marker holds its screen
+      size as the crop zooms. Written by applyProgress. */
+  private markerSpan = { value: 1 }
+  /** Animation clock for the decals and the route segments. Separate from
+      wall time so a frozen tour (the verify harness) parks it exactly. */
+  private animTime = 0
+  private animAccum = 0
 
   /** The shared uniform table and runtime sky uniforms: see scene/sky-state. */
   private sky = new SkyState()
   /** Marker projection with source-side change detection: scene/markers. */
   private projector = new MarkerProjector()
+  /** Screen-space hit testing for the route lines: scene/markers. */
+  private picker = new RoutePicker()
+  /** The place whose marker or route is under the pointer, from the owner. */
+  private hotId: string | null = null
+  /** Last route reported to the owner, so hover only crosses the channel on
+      a change. */
+  private routeHover: string | null = null
 
   /** The one rotation angle. Auto rotation, drag and the seeks all write to it. */
   private spin: number
@@ -255,6 +315,8 @@ export class EarthScene {
     this.scene.add(this.root)
 
     this.addGlow()
+    /* Before anything can move. See EarthOptions.tune. */
+    if (opts.tune) this.setTune(opts.tune)
     /*
       A failed load used to vanish into a void'd rejection: no ready, no
       error, and after the loader's timeout the page revealed a black hero.
@@ -304,6 +366,11 @@ export class EarthScene {
     this.root.position.set(cx, cy, 0)
     this.root.scale.setScalar(r * FRAME_H)
     this.centreWorld.set(cx, cy, 0)
+
+    /* Markers hold their screen size through the zoom: the settled crop is
+       the reference, and the close-up shrinks them by exactly the factor it
+       magnifies the planet by. */
+    this.markerSpan.value = MathUtils.clamp(to.r / r, 0.3, 1)
 
     /*
       The only thing the settle does now is fade the entry drop out, handing the
@@ -472,14 +539,45 @@ export class EarthScene {
     if (!origin) return
     const originVec = toVector(origin.lon, origin.lat, EARTH_R)
 
-    for (const place of this.opts.places) {
+    for (const [index, place] of this.opts.places.entries()) {
       const at = toVector(place.lon, place.lat, MARKER_R)
       this.projector.add(place.id, at)
 
-      /* No bead in the scene any more: the marker is a pulsing DOM circle
-         riding the projector's positions (Earth3D), which animates on the
-         compositor without ever waking this render loop. */
-      if (place.id === this.opts.originId) continue
+      const isOrigin = place.id === this.opts.originId
+      /*
+        The marker itself, as a patch of the sphere's own surface. Built
+        flat and then pushed onto the sphere, so it curves with the planet
+        and can never drift off it; the DOM keeps only the hit target and
+        the name, which no longer carry the look.
+      */
+      const decal = new Mesh(
+        surfacePatch(isOrigin ? 0.075 : 0.055, MARKER_R),
+        new ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          uniforms: {
+            uTime: this.markerTime,
+            uPulse: this.markerPulse,
+            uSpan: this.markerSpan,
+            /* Staggered, so six rings never beat in unison. */
+            uPhase: { value: index * 0.17 },
+            uHot: { value: 0 },
+          },
+          vertexShader: markerShader.vertexShader,
+          fragmentShader: markerShader.fragmentShader,
+        }),
+      )
+      decal.position.copy(at)
+      /* Local +Z becomes the outward normal; the patch's own vertices were
+         solved against exactly that convention. */
+      decal.quaternion.setFromUnitVectors(PATCH_AXIS, at.clone().normalize())
+      /* Above the routes (2): the lines converge on Bangladesh and would
+         otherwise cross over its marker. */
+      decal.renderOrder = 3
+      this.markers.push({ id: place.id, mat: decal.material as ShaderMaterial })
+      this.world.add(decal)
+
+      if (isOrigin) continue
 
       const to = toVector(place.lon, place.lat, EARTH_R)
       const angle = originVec.angleTo(to)
@@ -513,7 +611,7 @@ export class EarthScene {
 
       const mat = new ShaderMaterial({
         transparent: true,
-        uniforms: { uSweep: { value: -2 }, uAmp: { value: 0 } },
+        uniforms: { uSweep: { value: -2 }, uHot: { value: 0 } },
         vertexShader: arcShader.vertexShader,
         fragmentShader: arcShader.fragmentShader,
       })
@@ -522,8 +620,26 @@ export class EarthScene {
       mesh.renderOrder = 2
       const total = tube.index ? tube.index.count : 0
       tube.setDrawRange(0, this.opts.motion ? 0 : total)
-      this.arcs.push({ mesh, total, mat })
+      this.arcs.push({ id: place.id, mesh, total, mat })
       this.world.add(mesh)
+
+      /*
+        Every third sample is plenty for a hit test that measures distance
+        to the segments between them, and it keeps the per-move projection
+        work down to a few hundred points.
+
+        The first eighth of every route is left out. All five leave the same
+        square of Bangladesh, so within that bundle "which route is nearest"
+        has no meaningful answer — hovering Bangladesh itself was returning
+        the Netherlands. A route becomes hoverable where it is actually
+        distinguishable from its neighbours; the origin's own marker owns
+        the ground the bundle covers.
+      */
+      const skip = Math.round(steps / 8)
+      this.picker.add(
+        place.id,
+        points.filter((_, i) => i >= skip && (i % 3 === 0 || i === points.length - 1)),
+      )
     }
 
     if (!this.opts.motion) this.arcProgress = 1
@@ -570,6 +686,56 @@ export class EarthScene {
     this.dragging = false
     this.idleFor = 0
     this.pendingReturn = true
+  }
+
+  /**
+   * The pointer moved over the canvas without a button down. Coordinates are
+   * canvas-relative CSS pixels, the same space the marker frames report in.
+   * Answers through onRouteHover, and only when the answer changes.
+   */
+  pointerHover(x: number, y: number) {
+    if (this.dragging || !this.arcs.length) return
+    const id = this.picker.pick(
+      this.world,
+      this.camera,
+      this.centreWorld,
+      this.size,
+      x,
+      y,
+      /* Roughly a fingertip either side of a one-pixel line. */
+      14,
+    )
+    if (id === this.routeHover) return
+    this.routeHover = id
+    this.opts.onRouteHover?.(id)
+  }
+
+  /** The pointer left the canvas: no route can be under it. */
+  pointerHoverEnd() {
+    if (this.routeHover === null) return
+    this.routeHover = null
+    this.opts.onRouteHover?.(null)
+  }
+
+  /**
+   * Which place is active, decided by the owner (it merges this scene's
+   * route picks with the DOM markers' own hover and focus). Lights the
+   * marker and its route, and holds the tour while it lasts.
+   */
+  setActive(id: string | null) {
+    if (id === this.hotId) return
+    this.hotId = id
+    for (const marker of this.markers) {
+      marker.mat.uniforms.uHot.value = marker.id === id ? 1 : 0
+    }
+    for (const arc of this.arcs) {
+      arc.mat.uniforms.uHot.value = arc.id === id ? 1 : 0
+    }
+    this.needsDraw = true
+    /* Under reduced motion the loop parks itself; the highlight still has
+       to reach the screen. */
+    this.settled = false
+    this.start()
   }
 
   /* ------------------------------------------------------------- frame */
@@ -632,6 +798,16 @@ export class EarthScene {
             /* Fade the tour back in from zero rather than jumping to speed. */
             this.idleFor = this.resumeAfter
           }
+        } else if (this.hotId) {
+          /*
+            Hold while a marker or a route is under the pointer. The tour
+            used to carry the marker out from under the cursor, which
+            dropped the hover, closed the card and then re-opened it as the
+            planet drifted — the flicker read as a broken panel. Parking
+            idleFor at the resume threshold means letting go ramps the tour
+            back in from zero instead of snapping to full speed.
+          */
+          this.idleFor = this.resumeAfter
         } else if (this.opts.motion && !this.pendingReturn && this.settle === 0) {
           this.spin +=
             this.tourSpin * MathUtils.clamp((this.idleFor - this.resumeAfter) / 1.5, 0, 1) * dt
@@ -761,31 +937,46 @@ export class EarthScene {
     }
 
     /*
-      The route sweep, hero phase only: the tour keeps the loop rendering
-      there anyway, so the light rides along free. It fades out with the
-      settle so the showcase stays still and keeps its idle skip. A frozen
-      tour ($tourSpin 0, the verify harness's seed) parks the sweep too:
-      the goldens capture the still design, and wall-clock light would be
-      the only nondeterminism left in a frame.
+      The markers' ripples and the travelling route segments.
+
+      Both poses, deliberately. An earlier version ran them in the hero only
+      and faded them out with the settle, to protect the idle skip — which
+      meant the showcase, the pose a visitor actually sits and looks at, had
+      no movement at all, and the owner reported the animation as missing.
+      A parked globe that is supposed to breathe cannot also render nothing;
+      the cadence below is the compromise, drawing at 30 Hz when the
+      animation is the only thing alive and at full rate whenever anything
+      else moves.
+
+      A frozen tour ($tourSpin 0, what the verify harness seeds) parks all
+      of it: the goldens and the fallback bake capture the still design,
+      and wall-clock light would otherwise be the last nondeterminism in a
+      frame.
     */
-    if (
-      this.opts.motion &&
-      this.tourSpin !== 0 &&
-      this.arcProgress >= 1 &&
-      this.settle < 0.999
-    ) {
-      const strength = 1 - this.settle
-      this.arcs.forEach((arc, i) => {
-        const t = MathUtils.euclideanModulo(time / 5600 + i * 0.27, 1)
-        /* Enter from before the line, exit past its end, then rest: the
-           front never pops in or out. */
-        const sweep = -0.25 + t * 2.1
-        arc.mat.uniforms.uSweep.value = sweep <= 1.25 ? sweep : -2
-        arc.mat.uniforms.uAmp.value = strength
-      })
-      this.needsDraw = true
-    } else if (this.settle >= 0.999 || this.tourSpin === 0) {
-      for (const arc of this.arcs) arc.mat.uniforms.uAmp.value = 0
+    if (this.opts.motion && this.tourSpin !== 0) {
+      this.animTime += dt
+      this.markerTime.value = this.animTime
+      this.markerPulse.value = 1
+
+      if (this.arcProgress >= 1) {
+        this.arcs.forEach((arc, i) => {
+          /* Depart, cross, leave, rest: the cycle spends its first 62% in
+             travel and the remainder empty, so the routes read as
+             occasional departures rather than a conveyor. */
+          const cycle = MathUtils.euclideanModulo(this.animTime / 4.2 + i * 0.19, 1)
+          const travel = cycle / 0.62
+          arc.mat.uniforms.uSweep.value = travel <= 1 ? -0.18 + travel * 1.43 : -2
+        })
+      }
+
+      this.animAccum += dt
+      if (this.animAccum >= 1 / 30) {
+        this.animAccum = 0
+        this.needsDraw = true
+      }
+    } else {
+      this.markerPulse.value = 0
+      for (const arc of this.arcs) arc.mat.uniforms.uSweep.value = -2
     }
 
     /* Idle skip: see the field block. Anything that would change the picture

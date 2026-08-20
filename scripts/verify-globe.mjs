@@ -106,16 +106,22 @@ async function capture(view) {
   try {
     const page = await browser.newPage()
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }])
-    /* Freeze the tour and the drift before any app code runs. */
+    /*
+      Freeze the tour and the cloud drift before any app code runs. This is
+      the capture seed, not the tuning panel's store: the panel is a lazily
+      compiled chunk whose values arrive after the loop is already turning,
+      so seeding through it froze the globe at whatever angle the tour had
+      reached — a different angle on every run, depending on dev-server
+      compile latency. The scene reads this key at construction.
+    */
     await page.evaluateOnNewDocument(() => {
-      localStorage.setItem('earth-tune-v1', JSON.stringify({ $tourSpin: 0, $cloudLag: 0 }))
+      localStorage.setItem('earth-tune-seed', JSON.stringify({ $tourSpin: 0, $cloudLag: 0 }))
     })
     await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 60000 })
-    /* The freeze seed reaches the scene through the tune panel, and the
-       panel body is a lazily compiled chunk in dev: captures must not
-       start until it is mounted (its button in the DOM implies its effect
-       has replayed the seed through the bus), or a slow first compile lets
-       the drift run unfrozen and the capture is nondeterministic. */
+    /* The seed no longer travels through this panel, but its button is
+       still the cheapest proof that the dev server has finished compiling
+       the page's lazy chunks — captures taken mid-compile caught the
+       entrance rather than the settled pose. */
     await page.waitForSelector('button[aria-label="Earth tuning panel"]', { timeout: 60000 })
     /* Anchor on the reveal, not the clock: the loading screen locks page
        scroll while it covers the hero and releases it when the curtain
@@ -128,12 +134,9 @@ async function capture(view) {
         document.documentElement.style.overflow !== 'hidden',
       { timeout: 60000 },
     )
-    /* The DOM marker rings pulse on wall clock; the goldens capture the
-       still design. The canvas-side route sweep is already parked by the
-       tune seed ($tourSpin 0). */
-    await page.addStyleTag({
-      content: '.marker-pulse::after { animation: none !important; opacity: 0 !important; }',
-    })
+    /* Nothing to freeze from out here any more: the marker ripples and the
+       route segments are scene geometry, and the tune seed's $tourSpin 0
+       parks the animation clock they both ride. */
     await new Promise((r) => setTimeout(r, 8000))
     if (view.scroll > 0) {
       await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'instant' }), view.scroll)

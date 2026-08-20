@@ -12,11 +12,14 @@
  *   in   progress  the hero scroll value, pushed on change
  *   in   size      resize
  *   in   pointer   down | move | up, with the x coordinate
+ *   in   hover     pointer position for route hit testing, or hoverEnd
+ *   in   active    which place the owner considers hovered or focused
  *   in   run       start or stop the loop, from the IntersectionObserver
  *   in   tune      live parameter values from the dev panel
  *   in   dispose   tear down and close the worker
  *   out  ready     first complete frame has been drawn
  *   out  markers   screen positions for the DOM markers, when they moved
+ *   out  route     the route line under the pointer changed
  *   out  error     terminal failure; the main thread swaps the fallback
  */
 
@@ -61,8 +64,10 @@ ctx.onmessage = (event) => {
         getProgress: () => progress.value,
         getAssets: () => assets,
         onMarkers: (frames) => ctx.postMessage({ type: 'markers', frames }),
+        onRouteHover: (id) => ctx.postMessage({ type: 'route', id }),
         onReady: () => ctx.postMessage({ type: 'ready' }),
         onError: (reason) => ctx.postMessage({ type: 'error', reason }),
+        tune: msg.tune,
       })
       /*
         No start() here. Loading, compiling and the single ready frame all
@@ -84,6 +89,15 @@ ctx.onmessage = (event) => {
       if (msg.phase === 'down') scene.pointerDown(msg.x)
       else if (msg.phase === 'move') scene.pointerMove(msg.x)
       else scene.pointerUp()
+      break
+    case 'hover':
+      scene?.pointerHover(msg.x, msg.y)
+      break
+    case 'hoverEnd':
+      scene?.pointerHoverEnd()
+      break
+    case 'active':
+      scene?.setActive(msg.id)
       break
     case 'run':
       if (msg.running) scene?.start()

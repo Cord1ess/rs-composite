@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { places } from '@/content/globe'
 import { heroProgress } from '@/lib/scroll-progress'
@@ -15,10 +15,14 @@ import type { FromWorker } from './protocol'
   Only reached through a dynamic import behind the capability gate, so three.js
   and the textures are absent from the initial bundle.
 
-  Marker positions, their leader lines and their labels are written straight to
-  the DOM inside the render loop. None of it passes through React state, which
-  would mean a reconcile every frame. Only which marker is active is state, and
-  that changes on hover.
+  What lives where. The markers THEMSELVES are geometry in the scene now —
+  decals lying on the sphere — because anything projected across a message
+  channel lands a frame behind the picture and visibly detaches from the
+  planet during a drag. What stays in the DOM is what the DOM is good at: the
+  hit target, the country name and the detail card. Those are written straight
+  to the elements from an animation frame, never through React state, so
+  tracking the globe costs no reconciles. Only which place is active is state,
+  and that changes on hover.
 */
 
 const originFacts = [
@@ -28,25 +32,133 @@ const originFacts = [
   ['Output', '1.2 million pieces a month'],
 ]
 
-/*
-  How far each label sits off its marker.
+/** How far below the marker its name sits, and the least vertical room two
+    names may share before the lower one is pushed further down. */
+const NAME_DROP = 19
+const NAME_GAP = 17
 
-  The four export markets are within a few pixels of each other on the globe,
-  so a single fixed offset stacks all four labels in the same place. Each one
-  gets its own rung on a ladder instead, and the leader line does the work of
-  saying which marker it belongs to.
+/*
+  Position smoothing.
+
+  The scene renders on its own cadence and posts marker positions when they
+  move; the DOM applies them whenever the message lands. Written straight
+  through, that irregular arrival reads as jitter — the name stepping along
+  beside a dot that glides. The names are therefore eased toward the reported
+  position instead of snapped to it: 45 ms of smoothing removes the stepping
+  while staying close enough that a name never trails its marker.
+
+  Anything further than a marker could plausibly travel in a frame is a jump,
+  not a move — a pose change, or a marker reappearing around the limb — and is
+  taken instantly, because easing a teleport draws a line across the screen.
 */
-const LEAD = { x: 54, y: 26 }
-const RUNG = 46
+const SMOOTH_MS = 45
+const JUMP_PX = 90
+
+/** How long an emptied hover waits before the card closes. Long enough to
+    cross the gap between a marker and its name without a flicker. */
+const CLOSE_DELAY = 140
+
+/*
+  The capture seed.
+
+  Deliberately not the tuning panel's own key. The panel is a lazily
+  compiled chunk, so anything it replays lands after the loop is already
+  turning, and the golden harness — which works by freezing the tour and
+  comparing pixels — was freezing at a different angle on every run,
+  depending on how long the dev server took to compile that chunk. Read
+  here instead, the values reach the scene's constructor and nothing ever
+  moves unfrozen. Nothing writes this key but the capture scripts.
+*/
+function captureSeed(): Record<string, number | [number, number, number]> | undefined {
+  try {
+    const raw = localStorage.getItem('earth-tune-seed')
+    return raw ? (JSON.parse(raw) as Record<string, number | [number, number, number]>) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+type Track = {
+  x: number
+  y: number
+  fade: number
+  tx: number
+  ty: number
+  tfade: number
+}
+
+type Handle = {
+  setSize(width: number, height: number): void
+  run(running: boolean): void
+  pointer(phase: 'down' | 'move' | 'up', x: number): void
+  hover(x: number, y: number): void
+  hoverEnd(): void
+  active(id: string | null): void
+  tune(values: TuneValues): void
+  dispose(): void
+}
 
 export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dots = useRef(new Map<string, HTMLDivElement>())
-  const labels = useRef(new Map<string, HTMLDivElement>())
-  const lines = useRef(new Map<string, SVGPolylineElement>())
+  const names = useRef(new Map<string, HTMLDivElement>())
+  const handleRef = useRef<Handle | null>(null)
   const [ready, setReady] = useState(false)
   const [active, setActive] = useState<string | null>(null)
+
+  /*
+    Three sources decide what is active, in this order: a pinned marker (a
+    click, which is the only way a touch visitor can open a card), a hovered
+    or focused marker in the DOM, and the route line the scene reports under
+    the pointer. They are refs rather than state because two of them are
+    written from event handlers and messages that must not each cost a
+    render; the merge below is the only thing that ever calls setActive.
+  */
+  const pinned = useRef<string | null>(null)
+  const dotHover = useRef<string | null>(null)
+  const routeHover = useRef<string | null>(null)
+  const shown = useRef<string | null>(null)
+  const closeTimer = useRef(0)
+
+  const resolveActive = useCallback(() => {
+    const next = pinned.current ?? dotHover.current ?? routeHover.current
+    window.clearTimeout(closeTimer.current)
+    if (next === shown.current) return
+    const commit = () => {
+      shown.current = next
+      setActive(next)
+      handleRef.current?.active(next)
+    }
+    /* Opening is immediate; closing waits, so moving between a marker and
+       its name cannot flicker the card. */
+    if (next === null) closeTimer.current = window.setTimeout(commit, CLOSE_DELAY)
+    else commit()
+  }, [])
+
+  const enter = useCallback(
+    (id: string) => {
+      dotHover.current = id
+      resolveActive()
+    },
+    [resolveActive],
+  )
+
+  const leave = useCallback(
+    (id: string) => {
+      if (dotHover.current === id) dotHover.current = null
+      resolveActive()
+    },
+    [resolveActive],
+  )
+
+  const toggle = useCallback(
+    (id: string) => {
+      pinned.current = pinned.current === id ? null : id
+      resolveActive()
+    },
+    [resolveActive],
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -54,102 +166,147 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     if (!canvas || !wrap) return
 
     let cancelled = false
-
-    /* One control surface over both render paths: the worker, or the scene
-       directly where OffscreenCanvas does not exist. */
-    type Handle = {
-      setSize(width: number, height: number): void
-      run(running: boolean): void
-      pointer(phase: 'down' | 'move' | 'up', x: number): void
-      tune(values: TuneValues): void
-      dispose(): void
-    }
     let handle: Handle | null = null
 
     /*
       Cached, and only ever written from the ResizeObserver. Reading
       clientWidth in the frame callback forced a synchronous layout every
-      frame, because the previous frame's SVG attribute writes had already
+      frame, because the previous frame's attribute writes had already
       dirtied layout by the time the read arrived. Classic thrash, one line.
     */
     let wrapWidth = wrap.clientWidth
-    /* Last written value per element, so identical frames cost zero style
-       invalidations. Keyed by the same ids as the element maps. */
+
+    /* ------------------------------------------------ marker tracking */
+
+    const tracks = new Map<string, Track>()
+    /* Last written value per element, so a parked globe costs zero style
+       invalidations. Only the rarely-changing writes need it: the position
+       is written from a loop that stops when it converges. */
     const written = new Map<string, string>()
+    let smoothRaf = 0
+    let lastFrameAt = 0
 
-    const applyMarkers = (frames: MarkerFrame[]) => {
+    const paint = () => {
       /*
-        The leader lines and labels are invisible until the globe has pulled
-        back (their opacity rides --hp), so until just before they fade in
-        there is no reason to write their geometry at all. The dots stay live:
-        they are visible from the first frame.
+        Names sit under their markers, and the four European markets sit
+        within a few dozen pixels of each other, so the names are laid out
+        top to bottom and any that would collide is pushed below the one
+        above it. The result stays anchored to the right marker while
+        staying readable, which the old ladder off to one side did not: it
+        overlapped its own rungs.
       */
-      const leadersOn = heroProgress.value > 0.7
+      const order = [...tracks.entries()]
+        .filter(([, t]) => t.tfade > 0.02)
+        .sort((a, b) => a[1].y - b[1].y)
+      let prevBottom = -Infinity
 
-      /* Rungs are handed out by screen height among the markers that are
-         actually on screen, so the ladder never leaves gaps. */
-      const rung = new Map<string, number>()
-      if (leadersOn) {
-        frames
-          .filter((f) => f.id !== 'origin' && f.visible)
-          .sort((a, b) => a.y - b.y)
-          .forEach((f, i) => rung.set(f.id, i))
+      for (const [id, t] of tracks) {
+        const wrapEl = dots.current.get(id)
+        if (!wrapEl) continue
+        wrapEl.style.transform = `translate3d(${t.x.toFixed(1)}px, ${t.y.toFixed(1)}px, 0)`
+
+        /* Cards flip to the free side of the globe rather than off screen. */
+        const side = t.x > wrapWidth * 0.62 ? 'left' : 'right'
+        if (written.get(`${id}:side`) !== side) {
+          written.set(`${id}:side`, side)
+          wrapEl.dataset.side = side
+        }
+
+        const hittable = t.fade > 0.35 ? 'auto' : 'none'
+        if (written.get(`${id}:hit`) !== hittable) {
+          written.set(`${id}:hit`, hittable)
+          wrapEl.style.pointerEvents = hittable
+        }
       }
 
-      for (const frame of frames) {
-        const dot = dots.current.get(frame.id)
-        if (dot) {
-          const fade = frame.fade.toFixed(2)
-          const t = `translate3d(${frame.x.toFixed(1)}px, ${frame.y.toFixed(1)}px, 0)|${fade}`
-          if (written.get(frame.id) !== t) {
-            written.set(frame.id, t)
-            dot.style.transform = `translate3d(${frame.x.toFixed(1)}px, ${frame.y.toFixed(1)}px, 0)`
-            /* The scene supplies a limb fade, so markers dissolve at the edge
-               of the disc instead of popping at a threshold. */
-            dot.style.opacity = fade
-            dot.style.pointerEvents = frame.fade > 0.4 ? 'auto' : 'none'
-          }
-        }
-        if (frame.id === 'origin' || !leadersOn) continue
+      for (const [id, t] of order) {
+        const name = names.current.get(id)
+        if (!name) continue
+        let drop = NAME_DROP
+        if (t.y + drop < prevBottom + NAME_GAP) drop = prevBottom + NAME_GAP - t.y
+        prevBottom = t.y + drop
+        name.style.transform = `translate3d(-50%, ${drop.toFixed(1)}px, 0)`
+        name.style.opacity = t.fade.toFixed(2)
+      }
 
-        /* Labels lean away from the middle so they never cross the globe. */
-        const side = frame.x > wrapWidth * 0.55 ? 1 : -1
-        const index = rung.get(frame.id) ?? 0
-        const lx = frame.x + LEAD.x * side
-        const ly = frame.y - LEAD.y - index * RUNG
-
-        const key = `${frame.id}:lead`
-        const state = `${lx.toFixed(1)},${ly.toFixed(1)},${side},${frame.fade.toFixed(2)}`
-        if (written.get(key) === state) continue
-        written.set(key, state)
-
-        const label = labels.current.get(frame.id)
-        if (label) {
-          label.style.transform = `translate3d(${lx}px, ${ly}px, 0) translateX(${
-            side > 0 ? '0' : '-100%'
-          })`
-          label.style.opacity = frame.fade.toFixed(2)
-        }
-
-        const line = lines.current.get(frame.id)
-        if (line) {
-          /* Marker, up to the rung, then a flat run into the label. */
-          line.setAttribute(
-            'points',
-            `${frame.x},${frame.y} ${frame.x + 20 * side},${ly} ${lx - 6 * side},${ly}`,
-          )
-          line.style.opacity = frame.fade.toFixed(2)
-        }
+      /* Markers behind the planet keep no name at all. */
+      for (const [id, t] of tracks) {
+        if (t.tfade > 0.02) continue
+        const name = names.current.get(id)
+        if (name && name.style.opacity !== '0') name.style.opacity = '0'
       }
     }
+
+    const step = (now: number) => {
+      smoothRaf = 0
+      const dt = lastFrameAt ? Math.min(64, now - lastFrameAt) : 16
+      lastFrameAt = now
+      const k = 1 - Math.exp(-dt / SMOOTH_MS)
+
+      let moving = false
+      for (const track of tracks.values()) {
+        const dx = track.tx - track.x
+        const dy = track.ty - track.y
+        const df = track.tfade - track.fade
+        if (Math.abs(dx) > JUMP_PX || Math.abs(dy) > JUMP_PX) {
+          track.x = track.tx
+          track.y = track.ty
+        } else {
+          track.x += dx * k
+          track.y += dy * k
+        }
+        track.fade += df * k
+        if (
+          Math.abs(track.tx - track.x) > 0.05 ||
+          Math.abs(track.ty - track.y) > 0.05 ||
+          Math.abs(track.tfade - track.fade) > 0.004
+        ) {
+          moving = true
+        } else {
+          /* Land exactly, or a converging tail writes sub-pixel noise for
+             ever and the loop never parks. */
+          track.x = track.tx
+          track.y = track.ty
+          track.fade = track.tfade
+        }
+      }
+
+      paint()
+      if (moving) smoothRaf = window.requestAnimationFrame(step)
+      else lastFrameAt = 0
+    }
+
+    const applyMarkers = (frames: MarkerFrame[]) => {
+      for (const frame of frames) {
+        const track = tracks.get(frame.id)
+        if (!track) {
+          /* First sight: start where the scene says, never glide in from
+             the corner. */
+          tracks.set(frame.id, {
+            x: frame.x,
+            y: frame.y,
+            fade: frame.fade,
+            tx: frame.x,
+            ty: frame.y,
+            tfade: frame.fade,
+          })
+          continue
+        }
+        track.tx = frame.x
+        track.ty = frame.y
+        track.tfade = frame.fade
+      }
+      if (!smoothRaf) smoothRaf = window.requestAnimationFrame(step)
+    }
+
+    /* ---------------------------------------------------- scene setup */
 
     /*
       The loader contract. markHeroReady resolves the global heroReady promise
       the moment a complete first frame exists; the entrance animation then
       waits at the gate, which a loading screen holds while it is on screen.
       With no loading screen mounted the gate is just the ready promise.
-    */
-    /*
+
       The render loop stays parked until the loading screen reveals the canvas.
       The scene produces its one ready frame without it, and starting at the
       reveal means the GPU is silent while the page hydrates and the arc draw
@@ -178,6 +335,12 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
       onFail?.()
     }
 
+    const onRouteHover = (id: string | null) => {
+      if (cancelled) return
+      routeHover.current = id
+      resolveActive()
+    }
+
     const rect = wrap.getBoundingClientRect()
 
     /*
@@ -191,6 +354,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     */
     const aborter = new AbortController()
     const bitmaps = fetchEarthBitmaps(CLOUDS, reportHeroLoad, aborter.signal)
+    const seed = captureSeed()
 
     /*
       Worker construction can throw in environments the feature test cannot
@@ -236,6 +400,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
               width: rect.width,
               height: rect.height,
               progress: heroProgress.value,
+              tune: seed,
             },
             [offscreen],
           )
@@ -257,6 +422,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
         worker.onmessage = (event: MessageEvent) => {
           const msg = event.data as FromWorker
           if (msg.type === 'markers') applyMarkers(msg.frames)
+          else if (msg.type === 'route') onRouteHover(msg.id)
           else if (msg.type === 'error') onSceneError(msg.reason)
           else onSceneReady()
         }
@@ -290,6 +456,9 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
           setSize: (width, height) => worker.postMessage({ type: 'size', width, height }),
           run: (running) => worker.postMessage({ type: 'run', running }),
           pointer: (phase, x) => worker.postMessage({ type: 'pointer', phase, x }),
+          hover: (x, y) => worker.postMessage({ type: 'hover', x, y }),
+          hoverEnd: () => worker.postMessage({ type: 'hoverEnd' }),
+          active: (id) => worker.postMessage({ type: 'active', id }),
           tune: (values) => worker.postMessage({ type: 'tune', values }),
           dispose: () => {
             unsubscribe()
@@ -302,6 +471,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
             }, 1000)
           },
         }
+        handleRef.current = handle
         /* The dev tuning panel reaches the scene through the bus; any values
            it sent before this point replay now. */
         registerTuner(handle.tune)
@@ -324,8 +494,10 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
             getProgress: () => heroProgress.value,
             getAssets: () => bitmaps,
             onMarkers: applyMarkers,
+            onRouteHover,
             onReady: onSceneReady,
             onError: onSceneError,
+            tune: seed,
           })
         } catch (err) {
           console.error('[Earth3D] renderer construction failed.', err)
@@ -342,12 +514,18 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
             else if (phase === 'move') scene.pointerMove(x)
             else scene.pointerUp()
           },
+          hover: (x, y) => scene.pointerHover(x, y),
+          hoverEnd: () => scene.pointerHoverEnd(),
+          active: (id) => scene.setActive(id),
           tune: (values) => scene.setTune(values),
           dispose: () => scene.dispose(),
         }
+        handleRef.current = handle
         registerTuner(handle.tune)
       })
     }
+
+    /* -------------------------------------------------------- pointer */
 
     /*
       Pointer input lives here now, on the real DOM canvas, and is forwarded
@@ -357,24 +535,38 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     /*
       Move events are coalesced to one message per animation frame. High
       rate pointers report at 120-240 Hz and the scene only ever integrates
-      the latest x, so everything beyond one message a frame was clone and
-      wake-up cost for nothing.
+      the latest position, so everything beyond one message a frame was
+      clone and wake-up cost for nothing.
     */
     let pendingMoveX: number | null = null
+    let pendingHover: { x: number; y: number } | null = null
     let moveRaf = 0
     const flushMove = () => {
       moveRaf = 0
       if (pendingMoveX !== null && down) handle?.pointer('move', pendingMoveX)
       pendingMoveX = null
+      if (pendingHover && !down) handle?.hover(pendingHover.x, pendingHover.y)
+      pendingHover = null
     }
     const onDown = (event: PointerEvent) => {
       down = true
+      /* A press on open water dismisses a pinned card. */
+      if (pinned.current !== null) {
+        pinned.current = null
+        resolveActive()
+      }
       canvas.setPointerCapture(event.pointerId)
       handle?.pointer('down', event.clientX)
     }
     const onMove = (event: PointerEvent) => {
-      if (!down) return
-      pendingMoveX = event.clientX
+      if (down) {
+        pendingMoveX = event.clientX
+      } else {
+        /* offsetX/Y are canvas-relative already, which the scene's hit test
+           wants, and reading them costs no layout — unlike a bounding rect
+           on a canvas that moves with every scroll. */
+        pendingHover = { x: event.offsetX, y: event.offsetY }
+      }
       if (!moveRaf) moveRaf = window.requestAnimationFrame(flushMove)
     }
     const onUp = (event: PointerEvent) => {
@@ -388,10 +580,22 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
       handle?.pointer('up', event.clientX)
     }
+    /*
+      Leaving the whole field, not just the canvas: a pointer that crosses
+      from a marker's own hit area straight out to the page never gives the
+      canvas a leave event, and the last picked route would stay lit.
+    */
+    const onFieldLeave = () => {
+      pendingHover = null
+      handle?.hoverEnd()
+      routeHover.current = null
+      resolveActive()
+    }
     canvas.addEventListener('pointerdown', onDown)
     canvas.addEventListener('pointermove', onMove)
     canvas.addEventListener('pointerup', onUp)
     canvas.addEventListener('pointercancel', onUp)
+    wrap.addEventListener('pointerleave', onFieldLeave)
 
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect
@@ -428,19 +632,21 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
       registerTuner(null)
       aborter.abort(new DOMException('globe unmounted', 'AbortError'))
       if (moveRaf) window.cancelAnimationFrame(moveRaf)
+      if (smoothRaf) window.cancelAnimationFrame(smoothRaf)
+      window.clearTimeout(closeTimer.current)
       unsubScrub?.()
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
+      wrap.removeEventListener('pointerleave', onFieldLeave)
       ro.disconnect()
       io.disconnect()
       handle?.dispose()
       handle = null
+      handleRef.current = null
     }
-  }, [motion])
-
-  const destinations = places.filter((p) => p.id !== 'origin')
+  }, [motion, resolveActive])
 
   return (
     <div
@@ -463,49 +669,12 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
         className="h-full w-full cursor-grab touch-pan-y active:cursor-grabbing"
       />
 
-      {/* Leader lines. Only visible once the globe has settled, and only where
-          the labels they lead to exist at all. */}
-      <svg className="globe-leaders pointer-events-none absolute inset-0 hidden h-full w-full lg:block">
-        {destinations.map((place) => (
-          <polyline
-            key={place.id}
-            ref={(el) => {
-              if (el) lines.current.set(place.id, el)
-              else lines.current.delete(place.id)
-            }}
-            fill="none"
-            stroke="rgba(255,235,200,0.45)"
-            strokeWidth={1}
-            className="transition-opacity duration-300"
-          />
-        ))}
-      </svg>
-
-      {/* Market labels, on the lines. */}
-      <div className="globe-leaders pointer-events-none absolute inset-0 hidden lg:block">
-        {destinations.map((place) => (
-          <div
-            key={place.id}
-            ref={(el) => {
-              if (el) labels.current.set(place.id, el)
-              else labels.current.delete(place.id)
-            }}
-            className="absolute left-0 top-0 w-max -translate-y-1/2 opacity-0 transition-opacity duration-300"
-          >
-            <p className="whitespace-nowrap text-[0.7rem] uppercase tracking-[0.18em] text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.9)]">
-              {place.label}
-            </p>
-            <p className="mt-0.5 max-w-[13rem] whitespace-normal text-[0.7rem] leading-snug text-white/60">
-              {place.note}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {/* Markers and their hover cards. Visible at every breakpoint: since
-          the scene lost its baked-in beads, these circles ARE the markers. */}
+      {/*
+        The marker layer. The dots themselves are in the scene; these are the
+        hit areas, the names and the cards, positioned from the render loop.
+      */}
       <div className="pointer-events-none absolute inset-0">
-        {places.map((place, index) => {
+        {places.map((place) => {
           const isOrigin = place.id === 'origin'
           const isActive = active === place.id
           return (
@@ -515,66 +684,66 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
                 if (el) dots.current.set(place.id, el)
                 else dots.current.delete(place.id)
               }}
-              className="absolute left-0 top-0 opacity-0 transition-opacity duration-300"
+              data-side="right"
+              className="globe-marker absolute left-0 top-0"
             >
-              <div className="-translate-x-1/2 -translate-y-1/2">
-                {/* The marker itself: a small warm point breathing a pulse
-                    ring, pure compositor work while the canvas idles. The
-                    stagger keeps six rings from ever beating in unison. */}
+              <button
+                type="button"
+                aria-label={
+                  isOrigin
+                    ? 'Narayanganj, Bangladesh. Facility details.'
+                    : `${place.label}. ${place.note ?? ''}`
+                }
+                onMouseEnter={() => enter(place.id)}
+                onMouseLeave={() => leave(place.id)}
+                onFocus={() => enter(place.id)}
+                onBlur={() => leave(place.id)}
+                onClick={() => toggle(place.id)}
+                className={cn('globe-marker-hit', isOrigin && 'globe-marker-hit-lg')}
+              />
+
+              {/* The country name, under its marker. */}
+              <div
+                ref={(el) => {
+                  if (el) names.current.set(place.id, el)
+                  else names.current.delete(place.id)
+                }}
+                className="globe-marker-name"
+              >
                 <span
-                  aria-hidden
-                  className={cn('marker-pulse', isOrigin && 'marker-pulse-lg')}
-                  style={{ animationDelay: `${index * 0.45}s` }}
-                />
-                <button
-                  type="button"
-                  aria-label={
-                    isOrigin
-                      ? 'Narayanganj, Bangladesh. Facility details.'
-                      : `${place.label}. ${place.note ?? ''}`
-                  }
-                  onMouseEnter={() => setActive(place.id)}
-                  onMouseLeave={() => setActive(null)}
-                  onFocus={() => setActive(place.id)}
-                  onBlur={() => setActive(null)}
-                  onClick={() => setActive(isActive ? null : place.id)}
-                  className={cn(
-                    'pointer-events-auto block rounded-full transition-colors',
-                    isOrigin ? 'h-9 w-9' : 'h-7 w-7',
-                    isActive ? 'bg-white/20' : 'bg-transparent',
-                  )}
-                />
-                {isOrigin ? (
-                  <span className="marker-origin-label pointer-events-none absolute left-7 top-1 whitespace-nowrap text-[0.65rem] uppercase tracking-[0.18em] text-white/85 [text-shadow:0_1px_4px_rgba(0,0,0,0.9)]">
-                    Bangladesh
-                  </span>
-                ) : null}
+                  onMouseEnter={() => enter(place.id)}
+                  onMouseLeave={() => leave(place.id)}
+                  className="pointer-events-auto px-2 py-1"
+                >
+                  {place.label}
+                </span>
               </div>
 
-              {isActive ? (
-                <div
-                  className={cn(
-                    'glass-surface pointer-events-none absolute z-10 rounded-2xl p-4',
-                    isOrigin ? 'right-4 top-4 w-64 p-5' : 'left-4 top-4 w-52',
-                  )}
-                >
-                  <p className="text-sm font-medium tracking-[-0.02em] text-white">
-                    {isOrigin ? 'Narayanganj, Bangladesh' : place.label}
-                  </p>
-                  {isOrigin ? (
-                    <dl className="mt-3 space-y-1.5 text-xs text-white/60">
-                      {originFacts.map(([term, value]) => (
-                        <div key={term} className="flex justify-between gap-3">
-                          <dt className="text-white/40">{term}</dt>
-                          <dd className="text-right text-white/75">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : (
-                    <p className="mt-1.5 text-xs leading-relaxed text-white/60">{place.note}</p>
-                  )}
-                </div>
-              ) : null}
+              {/*
+                The card. Always mounted and toggled by class: mounting it on
+                hover made it flash in and out as React tore the subtree down
+                and rebuilt it, which is what read as a glitch.
+              */}
+              <div
+                className={cn('globe-card', isOrigin && 'globe-card-lg', isActive && 'is-open')}
+                aria-hidden={!isActive}
+              >
+                <p className="text-[0.8rem] font-medium tracking-[-0.01em] text-white">
+                  {isOrigin ? 'Narayanganj, Bangladesh' : place.label}
+                </p>
+                {isOrigin ? (
+                  <dl className="mt-3 space-y-1.5 text-[0.7rem]">
+                    {originFacts.map(([term, value]) => (
+                      <div key={term} className="flex justify-between gap-3">
+                        <dt className="text-white/45">{term}</dt>
+                        <dd className="text-right text-white/80">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="mt-1.5 text-[0.7rem] leading-relaxed text-white/65">{place.note}</p>
+                )}
+              </div>
             </div>
           )
         })}

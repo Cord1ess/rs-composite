@@ -836,17 +836,21 @@ export const cloudShader = {
 }
 
 /*
-  The route lines. Thin bright strokes from Bangladesh to each market, with
-  the movement carried by the line itself: a soft front of light leaves the
-  origin, travels the length, and slips off the far end — no object riding
-  the route. The old design flew an additive bead along each arc; it read
-  as traffic where this reads as signal.
+  The route lines. Thin bright strokes from Bangladesh to each market, and the
+  movement is the line itself: a SEGMENT of the route lights up and travels
+  from the origin to the market, then leaves the far end and the route rests
+  before the next one departs.
 
-  uSweep is the front's position along the line, 0 at the origin, 1 at the
-  market; the sweep enters from below 0 and exits past 1 so it never pops.
-  Anything far outside that range parks the line at its base look. uAmp
-  fades the whole effect with the showcase settle, so the parked globe
-  renders a still line and keeps its idle skip.
+  Three designs preceded this one. A bead riding the curve read as traffic; a
+  soft gaussian front was too diffuse to register as movement at all (the
+  owner could not see it); a segment with hard ends strobed. What works is a
+  segment with a crisp head and a tail that dissolves over its own length: the
+  eye reads a piece of line in motion, not a light with a shape.
+
+  uSweep is the head's position along the route, 0 at the origin, 1 at the
+  market. It enters from behind the origin and leaves past the end, so the
+  segment never pops in or out. Any value far outside that range (-2, what the
+  frozen tour writes) parks the route at its resting look.
 */
 export const arcShader = {
   vertexShader: `
@@ -859,18 +863,105 @@ export const arcShader = {
         `,
   fragmentShader: `
           uniform float uSweep;
-          uniform float uAmp;
+          uniform float uHot;
           varying float vT;
           void main() {
             /* Near solid at the origin, tapering toward the market, so
-               every route visibly leaves Bangladesh. */
-            float alpha = mix(0.95, 0.5, vT);
-            float d = (vT - uSweep) * 9.0;
-            float sweep = exp(-d * d) * uAmp;
-            alpha = min(1.0, alpha + sweep * 0.7);
-            /* Warm white at rest, whitening to pure under the front. */
-            vec3 col = mix(vec3(1.0, 0.95, 0.88), vec3(1.0), sweep);
+               every route visibly leaves Bangladesh. A hovered route
+               brightens along its whole length. */
+            float alpha = mix(0.9, 0.45, vT) * (0.82 + 0.18 * uHot);
+
+            /* The travelling segment: head at uSweep, tail 0.16 behind,
+               dissolving backwards over most of that length. */
+            float head = uSweep;
+            float tail = head - 0.16;
+            float seg = smoothstep(tail, tail + 0.11, vT) *
+                        (1.0 - smoothstep(head - 0.035, head, vT));
+
+            alpha = min(1.0, alpha + seg * 0.85);
+            /* Warm white at rest, pure white inside the segment. */
+            vec3 col = mix(vec3(1.0, 0.94, 0.86), vec3(1.0), max(seg, uHot * 0.6));
             gl_FragColor = vec4(col, alpha);
+          }
+        `,
+}
+
+/*
+  The place markers, as decals lying ON the sphere.
+
+  They used to be DOM circles projected onto the canvas from the render loop,
+  which cannot survive fast movement: the positions cross a message channel
+  and land a frame or more behind the picture, so during a drag or a fast
+  scroll the markers visibly detached from the planet. Geometry in the scene
+  cannot detach from the scene. Each marker is a small patch whose vertices
+  are pushed onto the sphere of radius MARKER_R, so it curves with the
+  surface and is occluded by the planet's own depth on the far side.
+
+  The pulse is a ring expanding across the patch — across the SURFACE, so it
+  reads as a ripple on the ground rather than a halo hanging over it. uPulse
+  is the master switch: zero (the frozen tour, the fallback bake) leaves the
+  bare point, which is exactly what a still frame wants.
+*/
+export const markerShader = {
+  vertexShader: `
+          varying vec2 vUv;
+          varying vec3 vAxis;
+          varying vec3 vWorldPos;
+          void main() {
+            vUv = uv;
+            /* The patch's own outward axis: its untouched local +Z. The
+               vertex normals are not usable here, because every vertex was
+               displaced onto the sphere after the geometry was built. */
+            vAxis = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0));
+            vec4 wp = modelMatrix * vec4(position, 1.0);
+            vWorldPos = wp.xyz;
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+  fragmentShader: `
+          uniform float uTime;
+          uniform float uPulse;
+          uniform float uPhase;
+          uniform float uHot;
+          uniform float uSpan;
+          varying vec2 vUv;
+          varying vec3 vAxis;
+          varying vec3 vWorldPos;
+          void main() {
+            /*
+              uSpan is the fraction of the patch the marker actually fills,
+              and the scene shrinks it as the crop zooms in. A marker is a
+              label for a place, not a feature of the terrain: left at a
+              fixed size in world units it stayed correct on the sphere but
+              swelled into a white blob the size of the Bay of Bengal in the
+              cinematic close-up. Shrinking inside a fixed patch, rather
+              than scaling the mesh, keeps every vertex exactly where it was
+              solved to sit — on the sphere.
+            */
+            vec2 p = (vUv - 0.5) * 2.0 / uSpan;
+            float r = length(p);
+            if (r > 1.0) discard;
+
+            /* Dissolve into the limb instead of clinging to the edge of the
+               disc as a squashed sliver. */
+            float facing = dot(vAxis, normalize(cameraPosition - vWorldPos));
+            float limb = smoothstep(0.06, 0.30, facing);
+            if (limb <= 0.0) discard;
+
+            /* The point itself, and a soft seat under it so it never looks
+               pasted onto the terrain. */
+            float core = 1.0 - smoothstep(0.13 + uHot * 0.05, 0.24 + uHot * 0.07, r);
+            float seat = (1.0 - smoothstep(0.0, 0.62, r)) * 0.16;
+
+            /* The ripple: expands to the edge of the patch, thinning and
+               fading as it goes. */
+            float ph = fract(uTime * 0.4 + uPhase);
+            float ring = r - ph * 0.92;
+            float w = 0.045 + ph * 0.05;
+            float pulse = exp(-(ring * ring) / (w * w)) * (1.0 - ph) * 0.8 * uPulse;
+
+            float a = clamp(core + seat + pulse, 0.0, 1.0) * limb;
+            gl_FragColor = vec4(vec3(1.0, 0.95, 0.87), a * (0.88 + uHot * 0.12));
           }
         `,
 }
