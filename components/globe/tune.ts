@@ -47,6 +47,12 @@ export const TUNE: Record<string, TuneValue> = {
   uWaveBase: 0.92,
   uWaveAmp: 0.16,
   uShoreGlow: 0.55,
+  /* Ice caps: the land channel's brightest band whitens toward uIceCol.
+     0.75 sits above desert luminance (~0.66) and below snowpack (0.85+). */
+  uIceCol: [0.19, 0.23, 0.29],
+  uIceLo: 0.75,
+  uIceHi: 0.92,
+  uIceAmt: 0.9,
 
   /* --- city lights --- */
   uCity: [CITY.x, CITY.y, CITY.z],

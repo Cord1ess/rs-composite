@@ -62,6 +62,10 @@ export const SECTIONS: TuneSection[] = [
       n('uWaveBase', 'Sea state base', 0.5, 1.2),
       n('uWaveAmp', 'Sea state ripple', 0, 0.5),
       n('uShoreGlow', 'Shoreline glow', 0, 1.5),
+      c('uIceCol', 'Ice colour', 0.5),
+      n('uIceLo', 'Ice starts at', 0.5, 1),
+      n('uIceHi', 'Ice solid at', 0.6, 1),
+      n('uIceAmt', 'Ice strength', 0, 1),
     ],
   },
   {

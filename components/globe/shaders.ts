@@ -202,6 +202,10 @@ export const earthShader = {
           uniform float uWaveBase;
           uniform float uWaveAmp;
           uniform float uShoreGlow;
+          uniform vec3 uIceCol;
+          uniform float uIceLo;
+          uniform float uIceHi;
+          uniform float uIceAmt;
           uniform float uCityGain;
           uniform float uCityThLo;
           uniform float uCityThHi;
@@ -354,6 +358,19 @@ export const earthShader = {
                        * (uWaveBase + uWaveAmp * wave);
             water += uOcean * shore * uShoreGlow;
             vec3 base = mix(water, uLandCol, smoothstep(0.04, 0.42, land));
+
+            /*
+              Ice caps. The land channel's top values are Blue Marble's
+              brightest surfaces, which on this planet means snow and ice:
+              deserts peak around 0.66 and stay below the gate, snowpack
+              sits at 0.85 and up. The one flat land colour is the art
+              direction everywhere else, but ice is the exception worth
+              keeping: without it Greenland reads as generic terrain in
+              daylight. Whitened BEFORE lighting, so ice shades, shadows
+              and darkens like any other ground, it is just brighter and
+              barely blue, the way ice photographs from orbit.
+            */
+            base = mix(base, uIceCol, smoothstep(uIceLo, uIceHi, land) * uIceAmt);
 
             /*
               High gain, because the sun only grazes: peak sunDot across the
