@@ -70,7 +70,7 @@ export const TUNE: Record<string, TuneValue> = {
   uBdInt: 1.0,
   /* Border attenuation in the settled ball view, where line density is
      several times the hero's: 1 = no fade, 0 = gone when zoomed out. */
-  uBorderFar: 0.35,
+  uBorderFar: 0.15,
 
   /* --- water glint --- */
   uGlint: [GLINT.x, GLINT.y, GLINT.z],
