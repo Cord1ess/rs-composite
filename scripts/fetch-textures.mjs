@@ -326,8 +326,53 @@ async function writeGraded(name, make, quality) {
   parented to the surface group in the scene, so it behaves exactly as a baked
   texture would: no motion of its own.
 */
+/*
+  Ice suppression in the lights bake.
+
+  Black Marble is not only city light: moonlit snow makes the Greenland ice
+  sheet (and high mountain snowfields) genuinely bright in the source, and
+  the shader's city terms then tint that broad wash gold. Gold over the
+  planet's dark blue land reads BROWN, which is exactly what Greenland did
+  at the terminator. The wash is not city light, so it dies in the bake:
+  wherever the day map says the ground is bright AND unsaturated (snow and
+  ice; deserts are bright but saturated and keep their wash), the night
+  energy is cut by 85%. City cores are point features on darker terrain and
+  never meet both tests.
+*/
+async function lightsMask(nightSrc, daySrc, [w, h]) {
+  const night = await sharp(nightSrc).resize(w, h, { fit: 'fill' }).removeAlpha().raw().toBuffer()
+  const day = await sharp(daySrc).resize(w, h, { fit: 'fill' }).removeAlpha().raw().toBuffer()
+  const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t))
+
+  const n = w * h
+  for (let i = 0; i < n; i++) {
+    const o = i * 3
+    const r = day[o] / 255
+    const g = day[o + 1] / 255
+    const b = day[o + 2] / 255
+    const hi = Math.max(r, g, b)
+    const lo = Math.min(r, g, b)
+    const sat = hi > 0 ? (hi - lo) / hi : 0
+    const ice = smooth((hi - 0.55) / 0.2) * smooth((0.16 - sat) / 0.1)
+    if (ice > 0) {
+      const f = 1 - 0.85 * ice
+      night[o] = Math.round(night[o] * f)
+      night[o + 1] = Math.round(night[o + 1] * f)
+      night[o + 2] = Math.round(night[o + 2] * f)
+    }
+  }
+
+  return () =>
+    sharp(night, { raw: { width: w, height: h, channels: 3 } })
+      .sharpen({ sigma: 0.7, m1: 0.6, m2: 2.4 })
+      .linear(1.45, -30)
+}
+
 console.log('City lights')
 const night = await grab(SETS.night, 'try')
+/* The day map is fetched here for the ice test; the land step's own grab
+   below hits the cache, so the bytes only ever download once. */
+const dayForIce = await grab(SETS.day, 'try')
 used.push(['lights.webp', night.licence, night.url])
 /*
   Sharpened, not just downsampled.
@@ -340,20 +385,11 @@ used.push(['lights.webp', night.licence, night.url])
 
   It also compresses better afterwards, because the crushed halo is flat.
 */
-await write('lights.webp', night.buf, SIZES.lights, (p) =>
-  p
-    .removeAlpha()
-    .sharpen({ sigma: 0.7, m1: 0.6, m2: 2.4 })
-    /*
-      Crushed harder than looks reasonable. Black Marble carries a dim blue grey
-      wash over unlit land, not just the lights themselves, and on a planet
-      whose only surface data is this map that wash renders the whole night side
-      purple. The shader also thresholds it, but taking it out here means the
-      flattened areas compress instead of costing bytes.
-    */
-    .linear(1.45, -30)
-    .webp({ quality: 62, effort: 6 }),
-)
+/* Sharpen and crush live inside lightsMask now, applied after the ice
+   suppression. The crush (linear 1.45, -30) stays as hard as ever: Black
+   Marble's dim blue-grey wash over unlit land would render the night side
+   purple, and flattening it here compresses instead of costing bytes. */
+await writeGraded('lights.webp', await lightsMask(night.buf, dayForIce.buf, SIZES.lights), 62)
 
 console.log('Land silhouette and ocean depth')
 const day = await grab(SETS.day, 'try')

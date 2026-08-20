@@ -420,8 +420,12 @@ export const earthShader = {
               mipmap chain: no post-processing pass, one instruction, and the
               big conurbations haze softly the way a camera sees them.
             */
+            /* The low edge sits at 0.08, not 0.02: the mip-blurred tap
+               averages broad dim washes (snowfields, residual airglow) into
+               values just above a 0.02 floor, and gold haze over dark blue
+               land reads brown. Real conurbation blooms sit far above 0.08. */
             float cityHaze = pow(texture2D(uLights, vUv, 4.0).r, 2.2);
-            city += uCity * smoothstep(0.02, 0.5, cityHaze) * uHazeGain
+            city += uCity * smoothstep(0.08, 0.5, cityHaze) * uHazeGain
                   * (1.0 - daylight) * smoothstep(0.02, 0.18, land);
 
             /* Weather over the lights. The shell is nearly invisible at

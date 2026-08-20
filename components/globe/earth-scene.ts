@@ -125,19 +125,17 @@ export class EarthScene {
   private resumeAfter = TUNE.$resumeAfter as number
 
   /*
-    Dynamic resolution. Full pixel ratio when the picture is calm, dropped to 1
-    while it is moving fast, because motion masks resolution completely and a
-    whipped drag at DPR 1.5 is where the frame budget went. Hysteresis on both
-    edges so it never oscillates: the drop is immediate, the restore waits for
-    half a second of calm, and switches are at least 250 ms apart.
+    Resolution is closed-loop ONLY. An earlier open-loop heuristic dropped
+    to DPR 1 during any motion, reasoning that motion masks resolution; it
+    does not mask point features, and the city lights are point features:
+    every scroll visibly blurred them and swallowed the small ones until
+    the picture calmed (audit follow-up, 2026-08-19). The drop is gone.
+    Weak devices are protected by the frame-time ladder below, which
+    measures actual cost and steps dprHigh down permanently, plus the
+    recovery probe that climbs back after a transient throttle.
   */
   private dprHigh: number
-  private dprLow: number
   private dprCurrent: number
-  private calmFor = 1
-  private lastRendered = 0
-  private lastDprSwitch = 0
-  private prevP = 0
 
   /*
     The closed loop. The motion heuristic above is open loop: it knows what
@@ -193,7 +191,6 @@ export class EarthScene {
       so full crispness is paid for once per view, not per frame.
     */
     this.dprHigh = Math.min(opts.dpr, 2)
-    this.dprLow = Math.min(opts.dpr, 1)
     this.dprCurrent = this.dprHigh
 
     this.renderer = new WebGLRenderer({
@@ -611,8 +608,6 @@ export class EarthScene {
 
     const progress = MathUtils.clamp(this.opts.getProgress(), 0, 1)
     this.applyProgress(progress)
-    const scrollSpeed = Math.abs(progress - this.prevP) / dt
-    this.prevP = progress
 
     /* ---- act 2: the motion state machine ---- */
     if (!this.dragging) {
@@ -729,7 +724,6 @@ export class EarthScene {
           this.dprHigh = Math.max(1.25, this.dprHigh - 0.375)
           this.frameEma = 16
           this.slowFor = 0
-          this.lastDprSwitch = time
           this.dprCurrent = this.dprHigh
           this.renderer.setPixelRatio(this.dprHigh)
           this.renderer.setSize(this.size.x, this.size.y, false)
@@ -775,23 +769,6 @@ export class EarthScene {
         this.fastFor = 0
       }
     }
-
-    /* Dynamic resolution: see the field block. Angular speed of the rendered
-       globe or a fast scroll both count as motion. */
-    if (this.dprLow < this.dprHigh) {
-      const angular = Math.abs(shortestAngle(rendered - this.lastRendered)) / dt
-      const busy = this.dragging || angular > 0.35 || scrollSpeed > 0.3
-      this.calmFor = busy ? 0 : this.calmFor + dt
-      const want = busy ? this.dprLow : this.calmFor > 0.5 ? this.dprHigh : this.dprCurrent
-      if (want !== this.dprCurrent && time - this.lastDprSwitch > 250) {
-        this.dprCurrent = want
-        this.lastDprSwitch = time
-        this.renderer.setPixelRatio(want)
-        this.renderer.setSize(this.size.x, this.size.y, false)
-        this.needsDraw = true
-      }
-    }
-    this.lastRendered = rendered
 
     /* ---- act 5: entrance animation, pulses, and the draw decision ---- */
     if (this.arcProgress < 1) {
