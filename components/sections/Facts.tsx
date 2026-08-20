@@ -55,7 +55,9 @@ export function Facts() {
   }, [])
 
   return (
-    <div className="px-6 pt-20 sm:px-8 lg:px-12 lg:pt-24">
+    /* One snap stop with the Introduction beneath it: the stats band and the
+       claim share a screen in the section scrolling. */
+    <div data-snap className="px-6 pt-20 sm:px-8 lg:px-12 lg:pt-24">
       <div ref={ref} className="mx-auto grid max-w-[1400px] grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {facts.map((fact) => (
           <Figure key={fact.label} fact={fact} active={active} />

@@ -57,6 +57,7 @@ export function EnvironmentSection() {
   return (
     <Section
       id="environment"
+      snap
       title="Environment"
       lead="Rainwater is harvested, effluent is treated before it returns to nature and the boiler burns the factory's own garment waste."
     >
@@ -96,6 +97,7 @@ export function ProcessSection() {
   return (
     <Section
       id="process"
+      snap
       title="Process"
       lead="Eight stages, one site. Nothing leaves for a subcontractor and comes back."
     >
@@ -140,6 +142,7 @@ export function TourFacility() {
   return (
     <Section
       id="tour"
+      snap
       title="Tour the facility"
       lead="Look around the floor. The markers show what happens where."
     >
@@ -156,7 +159,7 @@ export function TourFacility() {
 
 export function Quality() {
   return (
-    <Section id="quality" title="Quality">
+    <Section id="quality" snap title="Quality">
       <div className={mediaGrid}>
         <Reveal className="lg:order-2">
           <Photo
@@ -219,7 +222,7 @@ const welfare: { icon: IconName; title: string; body: string }[] = [
 
 export function People() {
   return (
-    <Section id="people" title="People" lead="2,250 people, half of them women.">
+    <Section id="people" snap title="People" lead="2,250 people, half of them women.">
       <div className={mediaGrid}>
         <Reveal>
           <Photo
@@ -261,7 +264,7 @@ export function People() {
 
 export function Quote() {
   return (
-    <section className="defer-paint px-6 py-20 sm:px-8 lg:px-12 lg:py-28">
+    <section data-snap="center" className="defer-paint px-6 py-20 sm:px-8 lg:px-12 lg:py-28">
       <div className="mx-auto max-w-[1400px]">
         <Reveal>
           <figure className="mx-auto max-w-3xl text-center">
@@ -290,6 +293,7 @@ export function CertificationsSection() {
   return (
     <Section
       id="certifications"
+      snap
       title="Certifications"
       lead="Audited by third parties and renewed on schedule."
     >

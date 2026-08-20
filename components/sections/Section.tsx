@@ -8,16 +8,22 @@ export function Section({
   lead,
   children,
   className,
+  snap,
 }: {
   id?: string
   title?: string
   lead?: ReactNode
   children?: ReactNode
   className?: string
+  /** Marks this section as a stop for the home page's section scrolling.
+      'center' centres a band shorter than the viewport instead of top
+      aligning it. Inert on pages without the conductor. */
+  snap?: boolean | 'center'
 }) {
   return (
     <section
       id={id}
+      data-snap={snap === 'center' ? 'center' : snap ? '' : undefined}
       className={cn('defer-paint px-6 py-20 sm:px-8 lg:px-12 lg:py-28', className)}
     >
       <div className="mx-auto max-w-[1400px]">

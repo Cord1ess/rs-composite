@@ -1,5 +1,6 @@
 import { preload } from 'react-dom'
 import TunePanel from '@/components/dev/TunePanel'
+import { SectionSnap } from '@/components/ui/SectionSnap'
 import { Hero } from '@/components/hero/Hero'
 import { Facts } from '@/components/sections/Facts'
 import {
@@ -35,6 +36,9 @@ export default function HomePage() {
 
   return (
     <>
+      {/* Section based scrolling: gestures step between snap stops instead of
+          free scrolling. Home page only; content pages read normally. */}
+      <SectionSnap />
       <Hero />
       <Facts />
       <Introduction />

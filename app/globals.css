@@ -42,6 +42,12 @@
     scroll-behavior: smooth;
     scroll-padding-top: var(--header-h);
     -webkit-text-size-adjust: 100%;
+    /*
+      The section conductor owns the position while it tweens; scroll
+      anchoring fights it whenever a content-visibility section renders in
+      mid flight and changes size above the viewport.
+    */
+    overflow-anchor: none;
   }
 
   body {
