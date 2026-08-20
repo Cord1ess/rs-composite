@@ -29,8 +29,6 @@ export const TUNE: Record<string, TuneValue> = {
   uTermHi: 0.42,
   uSunGain: 7.0,
   uSunExp: 1.25,
-  /* Terrain relief strength (V1): 0 restores the sphere-lit flat land. */
-  uReliefAmt: 0.7,
   uAmbHero: 0.035,
   uAmbDark: 0.016,
   uDuskTint: [1.07, 0.98, 0.9],

@@ -72,12 +72,9 @@ const SIZES = {
   /* Thin lines on black. Needs the resolution to stay crisp, but compresses
      almost to nothing because the rest of the frame is empty. */
   borders: [4096, 2048],
-  /* The shell's coverage channel. 3072 (audit IV, M1: fed by Patterson's
-     hand-cleaned 8K source) plus the fBm detail baked in by cloudMask. */
+  /* The shell's coverage channel. 3072 (audit IV, M1: the NASA + Patterson
+     blend) plus the fBm detail baked in by cloudMask. */
   clouds: [3072, 1536],
-  /* The terrain normal map (V1): low-frequency relief, so it needs fewer
-     texels than the maps that carry edges. */
-  normals: [4096, 2048],
 }
 
 /* Natural Earth 10m GeoJSON (audit IV, M2): five times the coastline and
@@ -98,16 +95,18 @@ const NE10M = {
   confines the rendered ice caps to true ice sheets (Greenland, the
   Himalaya); December drapes the whole boreal north in snow.
 
-  CLOUD_SOURCE (M1): 'storm' and 'fair' are Tom Patterson's hand-retouched
-  Natural Earth III decks (public domain, seam- and pole-cleaned); 'nasa'
-  is the original MODIS composite this project started with.
+  CLOUD_SOURCE (M1, revised on review): 'blend' takes the per-pixel maximum
+  of the NASA MODIS composite (dense, wide coverage) and Patterson's
+  hand-cleaned storm deck (strong system structure) — the owner found
+  Patterson alone too sparse. 'storm', 'fair' and 'nasa' select a single
+  source.
 
   STARFIELD (M7): 'eso' grades the real Milky Way panorama (ESO/S. Brunier,
   CC BY 4.0 — keep the credit in the asset manifest); 'plate' uses the
   supplied Galaxy BG.png as before.
 */
 const BMNG_MONTH = '200409'
-const CLOUD_SOURCE = 'storm'
+const CLOUD_SOURCE = 'blend'
 const STARFIELD = 'eso'
 
 const BMNG_RECORDS = { '200409': 73801, '200412': 73909 }
@@ -119,11 +118,6 @@ const SETS = {
     [`NASA Visible Earth BMNG ${BMNG_MONTH}, public domain`, `https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/${BMNG_RECORDS[BMNG_MONTH]}/world.topo.bathy.${BMNG_MONTH}.3x21600x10800.jpg`],
     ['NASA Visible Earth 5400, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x5400x2700.jpg'],
   ],
-  elev: [
-    /* Land elevation, the sister grid of the bathymetry below: feeds the
-       terrain normal map (V1). Ocean is black, so the sea stays flat. */
-    ['NASA GEBCO 08 elevation, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'],
-  ],
   stars: [
     ['ESO/S. Brunier Milky Way panorama, CC BY 4.0', 'https://cdn.eso.org/images/large/eso0932a.jpg'],
   ],
@@ -131,19 +125,16 @@ const SETS = {
     ['NASA Black Marble 2016 3km, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_3km.jpg'],
     ['NASA Black Marble 2016 0.1deg, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_01deg.jpg'],
   ],
-  clouds:
-    CLOUD_SOURCE === 'nasa'
-      ? [
-          ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
-          ['NASA Blue Marble clouds 2k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg'],
-        ]
-      : [
-          [
-            `Natural Earth III ${CLOUD_SOURCE} clouds (Tom Patterson), public domain`,
-            `http://shadedrelief.com/natural3/ne3_data/8192/clouds/${CLOUD_SOURCE}_clouds_8k.jpg`,
-          ],
-          ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
-        ],
+  cloudsNasa: [
+    ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
+    ['NASA Blue Marble clouds 2k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg'],
+  ],
+  cloudsPatterson: [
+    [
+      'Natural Earth III storm clouds (Tom Patterson), public domain',
+      'http://shadedrelief.com/natural3/ne3_data/8192/clouds/storm_clouds_8k.jpg',
+    ],
+  ],
   tour: [
     /* Demo panorama for the facility tour section: a real machine hall
        standing in for ours until the facility shoot. CC0. */
@@ -695,52 +686,36 @@ async function cloudMask(src, [w, h]) {
     }
   }
 
-  /* Same density curve the flat bake used: crush the thin haze, keep cores. */
-  return () => sharp(out, { raw: { width: w, height: h, channels: 1 } }).linear(1.55, -28)
+  /* Softer crush than the original (1.55, -28): the owner asked for more,
+     more spread-out cloud, and the old curve was killing exactly the mid
+     density coverage that reads as weather across open ocean. */
+  return () => sharp(out, { raw: { width: w, height: h, channels: 1 } }).linear(1.38, -18)
 }
-
-/*
-  The terrain normal map (audit IV, V1).
-
-  Central differences over the GEBCO land elevation, packed RG (x east,
-  y north, z reconstructed in the shader). The ocean is black in the
-  source, so the sea floor stays flat and the relief belongs to land
-  alone. The slope gain is baked generously and the shader's uReliefAmt
-  scales it down: one slider, tuned live like everything else.
-*/
-async function normalMask(elevSrc, [w, h]) {
-  const eb = await sharp(elevSrc).resize(w, h, { fit: 'fill' }).removeAlpha().greyscale().raw().toBuffer()
-  const out = Buffer.alloc(w * h * 3)
-  const S = 6.0
-  for (let y = 0; y < h; y++) {
-    const yN = Math.max(0, y - 1)
-    const yS = Math.min(h - 1, y + 1)
-    for (let x = 0; x < w; x++) {
-      const xW = (x - 1 + w) % w
-      const xE = (x + 1) % w
-      /* +x east; +y NORTH — the client flips rows to GL order, so what is
-         "up" in this image is v=1 after extraction. */
-      const dx = ((eb[y * w + xE] - eb[y * w + xW]) / 2 / 255) * S
-      const dy = ((eb[yN * w + x] - eb[yS * w + x]) / 2 / 255) * S
-      const inv = 1 / Math.hypot(dx, dy, 1)
-      const o = (y * w + x) * 3
-      out[o] = clamp((-dx * inv * 0.5 + 0.5) * 255)
-      out[o + 1] = clamp((-dy * inv * 0.5 + 0.5) * 255)
-      out[o + 2] = 0
-    }
-  }
-  return () => sharp(out, { raw: { width: w, height: h, channels: 3 } })
-}
-
-console.log('Terrain normals')
-const elev = await grab(SETS.elev, 'try')
-used.push(['normals.webp', elev.licence, elev.url])
-await writeGraded('normals.webp', await normalMask(elev.buf, SIZES.normals), 88)
 
 console.log('Cloud layer')
-const cloud = await grab(SETS.clouds, 'try')
-used.push(['clouds.webp', `${cloud.licence}, edges detail enhanced at bake`, cloud.url])
-await writeGraded('clouds.webp', await cloudMask(cloud.buf, SIZES.clouds), 58)
+if (CLOUD_SOURCE === 'blend') {
+  /*
+    The blend (owner review of M1): Patterson's storm deck alone read as
+    too sparse. The per-pixel MAX of the NASA composite and the Patterson
+    deck keeps NASA's dense, spread coverage everywhere and lets
+    Patterson's cleaned storm systems punch through where they are the
+    stronger signal — more cloud, better structure, no seam risk since
+    both are full-coverage equirectangular.
+  */
+  const nasa = await grab(SETS.cloudsNasa, 'try')
+  const patterson = await grab(SETS.cloudsPatterson, 'try')
+  const [w, h] = SIZES.clouds
+  const a = await sharp(nasa.buf).resize(w, h, { fit: 'fill' }).removeAlpha().greyscale().raw().toBuffer()
+  const b = await sharp(patterson.buf).resize(w, h, { fit: 'fill' }).removeAlpha().greyscale().raw().toBuffer()
+  for (let i = 0; i < a.length; i++) if (b[i] > a[i]) a[i] = b[i]
+  const blended = await sharp(a, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer()
+  used.push(['clouds.webp', `${nasa.licence} + ${patterson.licence}, max-blended`, patterson.url])
+  await writeGraded('clouds.webp', await cloudMask(blended, SIZES.clouds), 58)
+} else {
+  const cloud = await grab(CLOUD_SOURCE === 'nasa' ? SETS.cloudsNasa : SETS.cloudsPatterson, 'try')
+  used.push(['clouds.webp', `${cloud.licence}, edges detail enhanced at bake`, cloud.url])
+  await writeGraded('clouds.webp', await cloudMask(cloud.buf, SIZES.clouds), 58)
+}
 
 console.log('Tour panorama')
 const tour = await grab(SETS.tour, 'try')

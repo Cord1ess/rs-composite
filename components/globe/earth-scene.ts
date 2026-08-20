@@ -401,10 +401,7 @@ export class EarthScene {
     */
     const bitmaps = await this.opts.getAssets()
     if (this.disposed) return
-    const { lightsMap, landMap, borderMap, cloudMap, normalMap } = prepareEarthMaps(
-      bitmaps,
-      this.renderer,
-    )
+    const { lightsMap, landMap, borderMap, cloudMap } = prepareEarthMaps(bitmaps, this.renderer)
 
     /* One noise tile serves both materials: the earth's sea state and the
        shell's edge grain. It is generated, so two copies would be identical
@@ -420,7 +417,6 @@ export class EarthScene {
       landMap,
       borderMap,
       cloudMap,
-      normalMap,
       noiseTex,
     })
     this.earthMat = earthMat

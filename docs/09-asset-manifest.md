@@ -14,9 +14,8 @@ these; sources cache in `.texture-cache/`, gitignored. Art-direction switches
 |---|---|---|
 | `public/textures/lights.webp` | NASA Black Marble 2016 (13500px) | 5120×2560. Ice/snow glow suppressed at bake using the day map. |
 | `public/textures/land.webp` | Blue Marble BMNG Sept 2004 + GEBCO 08 bathymetry + NE 10m land mask | 5120×2560. One channel: depth below 0.5, land brightness above. |
-| `public/textures/normals.webp` | GEBCO 08 elevation | 4096×2048 RG terrain normals for relief lighting. |
 | `public/textures/borders.webp` | Natural Earth 10m (coastline, boundary lines, countries) | 4096×2048 RG distance field, lossless. |
-| `public/textures/clouds.webp` | Natural Earth III storm clouds (Tom Patterson) | 3072×1536, fBm detail enhancement at bake. |
+| `public/textures/clouds.webp` | NASA MODIS composite max-blended with Natural Earth III storm clouds (Tom Patterson) | 3072×1536, fBm detail enhancement at bake. |
 | `public/textures/galaxy.webp/.avif` | ESO/S. Brunier Milky Way panorama | 2048×1152, graded blue. **CC BY 4.0 — see below.** |
 | `public/textures/hero-fallback.webp` | baked from the live globe (`npm run fallback`) | static stand-in for gated and failed visitors |
 
