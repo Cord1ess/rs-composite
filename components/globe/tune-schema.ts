@@ -78,6 +78,10 @@ export const SECTIONS: TuneSection[] = [
       n('uHazeGain', 'Bloom haze', 0, 1),
       n('uBorderLit', 'Borders at night', 0, 0.8),
       n('uBorderDay', 'Borders day dim', 0, 0.6),
+      n('uBorderPx', 'Border width (px)', 0.4, 4, 0.05),
+      n('uBdPx', 'Bangladesh width (px)', 0.4, 6, 0.05),
+      n('uBorderInt', 'Border intensity', 0, 1.5, 0.05),
+      n('uBdInt', 'Bangladesh intensity', 0, 1.5, 0.05),
     ],
   },
   {

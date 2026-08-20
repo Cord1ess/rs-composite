@@ -62,7 +62,9 @@ export function prepareEarthMaps(bitmaps: EarthBitmaps, renderer: WebGLRenderer)
      encoded; the shader linearises with a pow. */
   const lightsMap = extractChannel(bitmaps.lights, 'max')
   const landMap = extractChannel(bitmaps.land, 'r')
-  const borderMap = extractChannel(bitmaps.borders, 'r')
+  /* The borders ship as a two-channel distance field: R is distance to any
+     border, G distance to Bangladesh's outline. */
+  const borderMap = extractChannel(bitmaps.borders, 'rg')
   const cloudMap = bitmaps.clouds ? extractChannel(bitmaps.clouds, 'r') : null
 
   const maxAniso = renderer.capabilities.getMaxAnisotropy()

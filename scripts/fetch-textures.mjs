@@ -173,14 +173,34 @@ const clamp = (v) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v))
   d3-geo, topojson-client and world-atlas are devDependencies. None of them
   reach the browser: what ships is the rasterised WebP.
 */
-async function borderMask([w, h]) {
+async function borderSDF([w, h]) {
   const topo = JSON.parse(
     readFileSync(resolve(root, 'node_modules/world-atlas/countries-50m.json'), 'utf8'),
   )
+  /*
+    Distance fields, not strokes (the third border pipeline, and the last).
+
+    A rasterised stroke can never beat the texture's own resolution: at the
+    entry crop one border texel spans ~2.55 screen pixels, so a one-texel
+    line magnified bilinearly is 2.5 px of blur before the shader even
+    samples it, and every attempt to thin the stroke just dimmed it. The
+    field flips the problem: each channel stores DISTANCE to the nearest
+    line (R: every border, G: Bangladesh), and the shader draws a line of
+    exact screen-pixel width with fwidth, the same trick font rendering
+    uses. Crisp at the entry magnification, crisp at the ball view, and the
+    widths become live tunables instead of bake-time commitments.
+
+    Rasterised at 2x so the line skeleton is sub-texel thin after the 2x
+    min-downsample; distances via a two-pass chamfer transform (exact
+    enough at a 6-texel range), normalised so 1.0 = 6 texels. Lossless
+    WebP: lossy would put wobble straight into line geometry.
+  */
+  const W = w * 2
+  const H = h * 2
   /* 50m rather than 110m. At 4096 wide the 110m outlines are visibly faceted. */
   const projection = geoEquirectangular()
-    .translate([w / 2, h / 2])
-    .scale(w / (2 * Math.PI))
+    .translate([W / 2, H / 2])
+    .scale(W / (2 * Math.PI))
   const path = geoPath(projection)
 
   const coast = mesh(topo, topo.objects.countries, (a, b) => a === b)
@@ -190,33 +210,78 @@ async function borderMask([w, h]) {
   )
   if (!bd) throw new Error('Bangladesh not found in world-atlas countries-50m')
 
-  /*
-    Sub-pixel stroke widths, deliberately.
-
-    At 4096 across 360 degrees one pixel is 0.088 degrees, which at the entry
-    crop lands at about 2.55 screen pixels. A 1px stroke therefore is not thin,
-    and the 2.3px Bangladesh outline was nearly six screen pixels of solid line.
-
-    Fractions below 1 let librsvg antialias instead, which does two useful
-    things at once: the line comes out around a screen pixel wide, and it is
-    automatically dimmer, because a 0.45px line spread over a whole pixel
-    arrives at roughly half the intensity. Peak value in the output is 180
-    rather than 255, so the mask is faint before the shader even touches it.
-
-      stroke 0.45 -> 1.15 screen px
-      stroke 0.40 -> 1.02 screen px
-      stroke 0.85 -> 2.17 screen px   Bangladesh, about double the rest
-  */
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-<rect width="${w}" height="${h}" fill="#000"/>
-<g fill="none" stroke-linejoin="round" stroke-linecap="round">
-<path d="${path(coast)}" stroke="#787878" stroke-width="0.45"/>
-<path d="${path(inland)}" stroke="#5a5a5a" stroke-width="0.4"/>
-<path d="${path(bd)}" stroke="#b4b4b4" stroke-width="0.85"/>
+  const rasterize = async (paths) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+<rect width="${W}" height="${H}" fill="#000"/>
+<g fill="none" stroke="#fff" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round">
+${paths.map((d) => `<path d="${d}"/>`).join('\n')}
 </g>
 </svg>`
+    return sharp(Buffer.from(svg)).removeAlpha().greyscale().raw().toBuffer()
+  }
 
-  return () => sharp(Buffer.from(svg)).removeAlpha().greyscale()
+  /* Two-pass 3x3 chamfer distance transform, float. Seeded from the
+     ANTI-ALIASED raster, not a binary threshold: a partially covered pixel
+     starts at a fractional distance, which recovers the centreline's
+     sub-texel position — binary seeds quantise the line to the raster grid
+     and every diagonal renders as a staircase. Accuracy is within a few
+     percent of Euclidean, invisible at a six-texel range. */
+  const chamfer = (seed) => {
+    const d = new Float32Array(W * H).fill(1e9)
+    for (let i = 0; i < W * H; i++) {
+      if (seed[i] > 16) d[i] = 1 - seed[i] / 255
+    }
+    const D = Math.SQRT2
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x
+        let v = d[i]
+        if (x > 0 && d[i - 1] + 1 < v) v = d[i - 1] + 1
+        if (y > 0) {
+          if (d[i - W] + 1 < v) v = d[i - W] + 1
+          if (x > 0 && d[i - W - 1] + D < v) v = d[i - W - 1] + D
+          if (x < W - 1 && d[i - W + 1] + D < v) v = d[i - W + 1] + D
+        }
+        d[i] = v
+      }
+    }
+    for (let y = H - 1; y >= 0; y--) {
+      for (let x = W - 1; x >= 0; x--) {
+        const i = y * W + x
+        let v = d[i]
+        if (x < W - 1 && d[i + 1] + 1 < v) v = d[i + 1] + 1
+        if (y < H - 1) {
+          if (d[i + W] + 1 < v) v = d[i + W] + 1
+          if (x < W - 1 && d[i + W + 1] + D < v) v = d[i + W + 1] + D
+          if (x > 0 && d[i + W - 1] + D < v) v = d[i + W - 1] + D
+        }
+        d[i] = v
+      }
+    }
+    return d
+  }
+
+  console.log('  chamfer: all borders')
+  const dAll = chamfer(await rasterize([path(coast), path(inland)]))
+  console.log('  chamfer: bangladesh')
+  const dBd = chamfer(await rasterize([path(bd)]))
+
+  /* Min-downsample 2x (distances halve with the resolution), clamp at six
+     texels, pack R = all borders, G = Bangladesh, B unused. */
+  const MAXD = 6
+  const out = Buffer.alloc(w * h * 3)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i0 = y * 2 * W + x * 2
+      const a = Math.min(dAll[i0], dAll[i0 + 1], dAll[i0 + W], dAll[i0 + W + 1]) / 2
+      const b = Math.min(dBd[i0], dBd[i0 + 1], dBd[i0 + W], dBd[i0 + W + 1]) / 2
+      const o = (y * w + x) * 3
+      out[o] = clamp((Math.min(a, MAXD) / MAXD) * 255)
+      out[o + 1] = clamp((Math.min(b, MAXD) / MAXD) * 255)
+    }
+  }
+
+  return sharp(out, { raw: { width: w, height: h, channels: 3 } })
 }
 
 /*
@@ -400,9 +465,13 @@ await writeGraded('land.webp', await landMask(day.buf, bath.buf, ne, SIZES.land)
 
 console.log('Country outlines')
 used.push(['borders.webp', 'Natural Earth via world-atlas, public domain', 'countries-50m'])
-/* Quality 86, higher than anything else here. Lossy compression smears one
-   pixel lines, and smearing was half of why these read as blurry. */
-await writeGraded('borders.webp', await borderMask(SIZES.borders), 86)
+{
+  const sdf = await borderSDF(SIZES.borders)
+  const buf = await sdf.webp({ lossless: true, effort: 6 }).toBuffer()
+  writeFileSync(resolve(outDir, 'borders.webp'), buf)
+  total += buf.length
+  console.log(`  wrote ${'borders.webp'.padEnd(20)} ${SIZES.borders[0]}x${SIZES.borders[1]}  ${kb(buf.length)}`)
+}
 
 /*
   Deep space background. A supplied plate, not a fetched one: the rendered star

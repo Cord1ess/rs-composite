@@ -62,6 +62,12 @@ export const TUNE: Record<string, TuneValue> = {
   uHazeGain: 0.35,
   uBorderLit: 0.3,
   uBorderDay: 0.15,
+  /* SDF border widths in SCREEN pixels, crisp at any zoom. Below 1.0 the
+     line stays hairline and dims instead of vanishing. */
+  uBorderPx: 1.0,
+  uBdPx: 2.2,
+  uBorderInt: 0.55,
+  uBdInt: 1.0,
 
   /* --- water glint --- */
   uGlint: [GLINT.x, GLINT.y, GLINT.z],

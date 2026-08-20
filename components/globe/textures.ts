@@ -10,6 +10,7 @@ import {
   LinearMipmapLinearFilter,
   RedFormat,
   RepeatWrapping,
+  RGFormat,
 } from 'three'
 
 /*
@@ -123,8 +124,9 @@ export async function fetchBitmap(
   return createImageBitmap(blob)
 }
 
-/** Draw the bitmap once, keep one channel, flip to GL row order. */
-export function extractChannel(bitmap: ImageBitmap, mode: 'r' | 'max'): DataTexture {
+/** Draw the bitmap once, keep one channel (or the RG pair for the border
+    distance fields), flip to GL row order. */
+export function extractChannel(bitmap: ImageBitmap, mode: 'r' | 'max' | 'rg'): DataTexture {
   const { width, height } = bitmap
   const cnv =
     typeof OffscreenCanvas !== 'undefined'
@@ -135,17 +137,23 @@ export function extractChannel(bitmap: ImageBitmap, mode: 'r' | 'max'): DataText
   const src = ctx.getImageData(0, 0, width, height).data
   bitmap.close()
 
-  const out = new Uint8Array(width * height)
+  const channels = mode === 'rg' ? 2 : 1
+  const out = new Uint8Array(width * height * channels)
   for (let y = 0; y < height; y++) {
     const from = y * width
     const to = (height - 1 - y) * width
     for (let x = 0; x < width; x++) {
       const i = (from + x) * 4
-      out[to + x] = mode === 'r' ? src[i] : Math.max(src[i], src[i + 1], src[i + 2])
+      if (mode === 'rg') {
+        out[(to + x) * 2] = src[i]
+        out[(to + x) * 2 + 1] = src[i + 1]
+      } else {
+        out[to + x] = mode === 'r' ? src[i] : Math.max(src[i], src[i + 1], src[i + 2])
+      }
     }
   }
 
-  const tex = new DataTexture(out, width, height, RedFormat)
+  const tex = new DataTexture(out, width, height, mode === 'rg' ? RGFormat : RedFormat)
   tex.magFilter = LinearFilter
   tex.minFilter = LinearMipmapLinearFilter
   tex.generateMipmaps = true

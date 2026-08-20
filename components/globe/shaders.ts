@@ -212,6 +212,10 @@ export const earthShader = {
           uniform float uHazeGain;
           uniform float uBorderLit;
           uniform float uBorderDay;
+          uniform float uBorderPx;
+          uniform float uBdPx;
+          uniform float uBorderInt;
+          uniform float uBdInt;
           uniform float uGlintExp;
           uniform float uLaneTight;
           uniform float uGlintFresW;
@@ -456,15 +460,32 @@ export const earthShader = {
 
             /*
               Country outlines, in the same colour as the city lights so they
-              read as part of the same layer rather than as an overlay.
+              read as part of the same layer rather than as an overlay. Kept
+              faint on the lit side, where the surface is bright enough to
+              swallow them anyway, and allowed to come up on the night side
+              where they do the work.
 
-              The mask carries its own weighting: coastlines and internal
-              borders are dim, Bangladesh is brighter and thicker, so one
-              texture read gives both. Kept faint on the lit side, where the
-              surface is bright enough to swallow them anyway, and allowed to
-              come up on the night side where they do the work.
+              The texture is a distance field, not a picture of lines: R is
+              distance to the nearest border, G to Bangladesh's outline, so
+              the line is drawn HERE at an exact screen-pixel width with
+              fwidth, the way font rendering does it. Crisp at every zoom
+              where a rasterised stroke was 2.5 px of bilinear blur at the
+              entry crop, and the widths are live tunables. A width under
+              one pixel renders as a correctly dimmer hairline, which is
+              what the AA half-pixel window degrades to.
             */
-            float border = texture2D(uBorders, vUv).r;
+            /* The AA window is 0.7 px each side, a touch wider than the
+               textbook half pixel: the field's centreline carries a little
+               raster wobble, and the wider ramp reads as a smooth thin line
+               where the tight one read as stair steps. */
+            vec2 bfield = texture2D(uBorders, vUv).rg;
+            float bwA = max(fwidth(bfield.x), 1e-5);
+            float lineAll = 1.0 - smoothstep((uBorderPx * 0.5 - 0.7) * bwA,
+                                             (uBorderPx * 0.5 + 0.7) * bwA, bfield.x);
+            float bwB = max(fwidth(bfield.y), 1e-5);
+            float lineBd = 1.0 - smoothstep((uBdPx * 0.5 - 0.7) * bwB,
+                                            (uBdPx * 0.5 + 0.7) * bwB, bfield.y);
+            float border = max(lineAll * uBorderInt, lineBd * uBdInt);
             color += uCity * border * (uBorderLit - uBorderDay * daylight);
 
             /*
