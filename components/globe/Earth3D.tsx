@@ -312,18 +312,28 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
     if (mainThread) {
       import('./earth-scene').then(({ EarthScene: Ctor }) => {
         if (cancelled) return
-        const scene = new Ctor({
-          canvas,
-          places,
-          originId: 'origin',
-          motion,
-          dpr: window.devicePixelRatio,
-          getProgress: () => heroProgress.value,
-          getAssets: () => bitmaps,
-          onMarkers: applyMarkers,
-          onReady: onSceneReady,
-          onError: onSceneError,
-        })
+        /* A wedged GPU process throws out of renderer construction even
+           when the capability probe passed moments earlier; that must land
+           on the fallback, not as an unhandled rejection. */
+        let scene: InstanceType<typeof Ctor>
+        try {
+          scene = new Ctor({
+            canvas,
+            places,
+            originId: 'origin',
+            motion,
+            dpr: window.devicePixelRatio,
+            getProgress: () => heroProgress.value,
+            getAssets: () => bitmaps,
+            onMarkers: applyMarkers,
+            onReady: onSceneReady,
+            onError: onSceneError,
+          })
+        } catch (err) {
+          console.error('[Earth3D] renderer construction failed.', err)
+          onSceneError('webgl-context')
+          return
+        }
         scene.setSize(wrap.clientWidth, wrap.clientHeight)
         if (revealed) scene.start()
         handle = {

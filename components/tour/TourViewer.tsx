@@ -46,30 +46,40 @@ export function TourViewer() {
       started = true
       void import('./tour-scene').then(({ TourScene: Ctor }) => {
         if (cancelled) return
-        const scene = new Ctor({
-          canvas,
-          spots: tourSpots,
-          /* Unconditional, the same owner decision as the globe (see
-             GlobeField's probe): Windows performance mode reports
-             prefers-reduced-motion and froze the auto look-around for a
-             large slice of ordinary laptops. A showcase that sits still
-             reads as broken, not reduced. */
-          motion: true,
-          /*
-            A real hall, standing in for ours: Poly Haven's machine_shop_01,
-            CC0, no attribution required. When the facility shoot happens,
-            replace the file and re-aim the spots in content/tour.ts. Removing
-            src entirely falls back to the drawn placeholder.
-          */
-          src: '/textures/tour.webp',
-          onFrames: applyFrames,
-          onReady: () => {
-            if (!cancelled) setReady(true)
-          },
-        })
-        sceneRef.current = scene
-        scene.setSize(wrap.clientWidth, wrap.clientHeight)
-        scene.start()
+        /*
+          Guarded: a browser whose GPU process has wedged (the "GL_VENDOR =
+          Disabled" state) throws out of WebGLRenderer construction. The
+          globe has a whole fallback spine for that; the tour just stays on
+          its poster state quietly instead of spraying uncaught errors.
+        */
+        try {
+          const scene = new Ctor({
+            canvas,
+            spots: tourSpots,
+            /* Unconditional, the same owner decision as the globe (see
+               GlobeField's probe): Windows performance mode reports
+               prefers-reduced-motion and froze the auto look-around for a
+               large slice of ordinary laptops. A showcase that sits still
+               reads as broken, not reduced. */
+            motion: true,
+            /*
+              A real hall, standing in for ours: Poly Haven's machine_shop_01,
+              CC0, no attribution required. When the facility shoot happens,
+              replace the file and re-aim the spots in content/tour.ts. Removing
+              src entirely falls back to the drawn placeholder.
+            */
+            src: '/textures/tour.webp',
+            onFrames: applyFrames,
+            onReady: () => {
+              if (!cancelled) setReady(true)
+            },
+          })
+          sceneRef.current = scene
+          scene.setSize(wrap.clientWidth, wrap.clientHeight)
+          scene.start()
+        } catch (err) {
+          console.error('[TourViewer] WebGL unavailable; tour stays on its poster.', err)
+        }
       })
     }
 
