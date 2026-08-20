@@ -23,16 +23,25 @@ const Earth3D = dynamic(() => import('./Earth3D'), { ssr: false })
 type Connection = { saveData?: boolean; effectiveType?: string }
 
 function probe() {
+  /* Every gate says WHY it fired: a silent fallback turns "why is the
+     planet static" into archaeology. This line is the whole dig. */
+  const fail = (reason: string) => {
+    console.info(`[globe] static fallback: ${reason}`)
+    return null
+  }
   const conn = (navigator as Navigator & { connection?: Connection }).connection
-  if (conn?.saveData) return null
-  if (conn?.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) return null
-  if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) return null
+  if (conn?.saveData) return fail('data saver is enabled')
+  if (conn?.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType))
+    return fail(`connection reports ${conn.effectiveType}`)
+  if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2)
+    return fail(`${navigator.hardwareConcurrency} cores`)
 
   try {
     const canvas = document.createElement('canvas')
-    if (!(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))) return null
+    if (!(canvas.getContext('webgl2') ?? canvas.getContext('webgl')))
+      return fail('WebGL context unavailable (check browser hardware acceleration)')
   } catch {
-    return null
+    return fail('WebGL probe threw')
   }
 
   /*
