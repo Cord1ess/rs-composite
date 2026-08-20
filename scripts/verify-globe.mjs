@@ -56,11 +56,46 @@ try {
 
 /* Per-view thresholds: mean abs subpixel diff, and % of pixels with any
    channel off by >24. The beads travelling the arcs are the main honest
-   source of frame-to-frame noise. */
+   source of frame-to-frame noise. Each view also carries a pose check — a
+   region whose brightness proves the globe is actually in that view's
+   pose — because a rare worker stall can leave a stale frame on the
+   canvas (page scrolled, picture did not), and a stale frame must never
+   become a golden or fail a verify: the capture retries instead. */
 const VIEWS = [
-  { name: 'entry', scroll: 0, mean: 1.6, hot: 0.8 },
-  { name: 'showcase', scroll: 1400, mean: 1.6, hot: 0.8 },
+  {
+    name: 'entry',
+    scroll: 0,
+    mean: 1.6,
+    hot: 0.8,
+    /* Entry: the magnified planet fills the bottom right. */
+    pose: { left: 1100, top: 600, width: 300, height: 250, min: 12 },
+  },
+  {
+    name: 'showcase',
+    scroll: 1400,
+    mean: 1.6,
+    hot: 0.8,
+    /* Showcase: below the settled ball is empty space; in the entry pose
+       (a stale or mid-transition frame) the same region is bright planet
+       surface. A real discriminator, unlike edge regions that are darkish
+       in both poses. */
+    pose: { left: 950, top: 770, width: 200, height: 90, max: 12 },
+  },
 ]
+
+async function poseOk(pngPath, pose) {
+  const { data, info } = await sharp(pngPath)
+    .extract({ left: pose.left, top: pose.top, width: pose.width, height: pose.height })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  let sum = 0
+  for (let i = 0; i < data.length; i++) sum += data[i]
+  const mean = sum / data.length
+  if (pose.min !== undefined && mean < pose.min) return { ok: false, mean }
+  if (pose.max !== undefined && mean > pose.max) return { ok: false, mean }
+  return { ok: true, mean }
+}
 
 async function capture(view) {
   const browser = await puppeteer.launch({
@@ -102,7 +137,9 @@ async function capture(view) {
     await page.screenshot({ path })
     return path
   } finally {
-    await browser.close()
+    /* Windows occasionally throws EBUSY unlinking the temp profile; a
+       failed cleanup must never kill a run that already has its frame. */
+    await browser.close().catch(() => {})
   }
 }
 
@@ -127,9 +164,21 @@ async function diff(aPath, bPath) {
   return { mean: sum / (n * 3), hot: (hot / n) * 100 }
 }
 
+async function captureChecked(view) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const path = await capture(view)
+    const { ok, mean } = await poseOk(path, view.pose)
+    if (ok) return path
+    console.warn(
+      `  RETRY ${view.name}: pose check failed (region mean ${mean.toFixed(1)}) — stale frame suspected`,
+    )
+  }
+  throw new Error(`${view.name}: pose check failed twice; the scene is not reaching its pose`)
+}
+
 let failed = false
 for (const view of VIEWS) {
-  const shot = await capture(view)
+  const shot = await captureChecked(view)
   const golden = resolve(goldenDir, `${view.name}.png`)
   if (record) {
     await sharp(shot).toFile(golden)
