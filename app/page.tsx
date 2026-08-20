@@ -21,15 +21,16 @@ export default function HomePage() {
     background, so it preloads as an image. Home page only: no other route
     pays for these bytes.
   */
-  /* crossOrigin matters: an as="fetch" preload without it is made in
-     no-cors mode, a plain fetch() runs in cors mode, and the mismatch makes
-     the browser refuse the preload match — every texture downloaded twice
-     (audit III, A1). With anonymous both requests are mode-identical. */
-  preload('/textures/lights.webp', { as: 'fetch', crossOrigin: 'anonymous' })
-  preload('/textures/land.webp', { as: 'fetch', crossOrigin: 'anonymous' })
-  preload('/textures/borders.webp', { as: 'fetch', crossOrigin: 'anonymous' })
-  preload('/textures/clouds.webp', { as: 'fetch', crossOrigin: 'anonymous' })
-  preload('/textures/normals.webp', { as: 'fetch', crossOrigin: 'anonymous' })
+  /*
+    No texture preloads any more, deliberately. They fire from the HTML
+    before the capability probe can decline, so every GATED visitor (data
+    saver, no WebGL, weak device) downloaded ~3.4 MB it would never use —
+    the exact people the gate exists to protect. Since audit III the main
+    thread starts the real fetches the moment the globe effect runs, so
+    the preload head start had shrunk to the hydration delta; the loading
+    screen absorbs it. The galaxy plate stays preloaded: it is a CSS
+    background every visitor sees, fallback or not.
+  */
   preload('/textures/galaxy.avif', { as: 'image', type: 'image/avif' })
 
   return (
