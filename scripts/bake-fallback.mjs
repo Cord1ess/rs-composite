@@ -38,8 +38,10 @@ await page.goto(process.env.GLOBE_URL ?? 'http://localhost:3000', {
   waitUntil: 'networkidle2',
   timeout: 60000,
 })
-/* Same reveal-anchored wait as the verify harness: immune to dev-server
-   compile latency. */
+/* Same waits as the verify harness: the tune panel must be mounted (it
+   carries the freeze seed through the bus) and the reveal must have
+   happened, both immune to dev-server compile latency. */
+await page.waitForSelector('button[aria-label="Earth tuning panel"]', { timeout: 60000 })
 await page.waitForFunction(
   () =>
     document.querySelector('canvas') && document.documentElement.style.overflow !== 'hidden',

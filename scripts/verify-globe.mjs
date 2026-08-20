@@ -76,6 +76,12 @@ async function capture(view) {
       localStorage.setItem('earth-tune-v1', JSON.stringify({ $tourSpin: 0, $cloudLag: 0 }))
     })
     await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 60000 })
+    /* The freeze seed reaches the scene through the tune panel, and the
+       panel body is a lazily compiled chunk in dev: captures must not
+       start until it is mounted (its button in the DOM implies its effect
+       has replayed the seed through the bus), or a slow first compile lets
+       the drift run unfrozen and the capture is nondeterministic. */
+    await page.waitForSelector('button[aria-label="Earth tuning panel"]', { timeout: 60000 })
     /* Anchor on the reveal, not the clock: the loading screen locks page
        scroll while it covers the hero and releases it when the curtain
        lifts. A flat wait raced dev-server compiles and caught mid-entrance
