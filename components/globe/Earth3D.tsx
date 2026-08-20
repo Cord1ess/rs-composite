@@ -272,7 +272,9 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
           .then((b) => {
             worker.postMessage(
               { type: 'assets', ...b },
-              b.clouds ? [b.lights, b.land, b.borders, b.clouds] : [b.lights, b.land, b.borders],
+              b.clouds
+                ? [b.lights, b.land, b.borders, b.clouds, b.normals]
+                : [b.lights, b.land, b.borders, b.normals],
             )
           })
           .catch((err) => {

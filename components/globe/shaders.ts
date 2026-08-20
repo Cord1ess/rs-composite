@@ -180,6 +180,8 @@ export const earthShader = {
           uniform float uDark;
           uniform sampler2D uNoise;
           uniform sampler2D uClouds;
+          uniform sampler2D uNormals;
+          uniform float uReliefAmt;
           uniform float uCloudAmt;
           uniform float uCloudShift;
           uniform vec3 uShallow;
@@ -379,6 +381,22 @@ export const earthShader = {
             base = mix(base, uIceCol, ice);
 
             /*
+              Terrain relief (audit IV, V1). The planet was lit only by its
+              sphere until now; this perturbs the shading normal with real
+              GEBCO slopes so the grazing sun rakes across the Himalaya and
+              the Andes. Diffuse only: the terminator gate, city gating,
+              fresnel and glint stay on the sphere normal, so relief
+              sculpts the light without disturbing any silhouette-driven
+              term. Gated to land; the sea keeps its own optics.
+            */
+            vec3 tEast = normalize(cross(vec3(0.0, 1.0, 0.0), n) + vec3(1e-4));
+            vec3 tNorth = cross(n, tEast);
+            vec2 tslope = (texture2D(uNormals, vUv).rg * 2.0 - 1.0)
+                        * uReliefAmt * smoothstep(0.02, 0.2, land);
+            vec3 nR = normalize(n + tslope.x * tEast + tslope.y * tNorth);
+            float sunDotR = dot(nR, uSun);
+
+            /*
               High gain, because the sun only grazes: peak sunDot across the
               visible cap is about 0.49, so a gain near 1 leaves the whole
               planet dark. This brings the lit top right up to roughly half
@@ -401,7 +419,7 @@ export const earthShader = {
             /* The dark floor deepens with uDark: the settled section view sat
                too well lit in shadow at the hero's ambient level. */
             vec3 lit = base * (mix(uAmbHero, uAmbDark, uDark) * vec3(0.85, 0.92, 1.12)
-                     + uSunGain * pow(clamp(sunDot, 0.0, 1.0), uSunExp) * sunTint);
+                     + uSunGain * pow(clamp(sunDotR, 0.0, 1.0), uSunExp) * sunTint);
 
             /*
               The night hemisphere was near flat black, which amputates the

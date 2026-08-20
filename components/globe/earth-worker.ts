@@ -100,6 +100,7 @@ ctx.onmessage = (event) => {
           land: msg.land,
           borders: msg.borders,
           clouds: msg.clouds,
+          normals: msg.normals,
         })
       }
       break

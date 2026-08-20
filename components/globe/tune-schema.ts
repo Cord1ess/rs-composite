@@ -41,6 +41,7 @@ export const SECTIONS: TuneSection[] = [
       n('uTermHi', 'Terminator end', -0.5, 1),
       n('uSunGain', 'Surface sun gain', 0, 16, 0.1),
       n('uSunExp', 'Surface sun falloff', 0.4, 3),
+      n('uReliefAmt', 'Terrain relief', 0, 2.5, 0.05),
       n('uAmbHero', 'Ambient (hero)', 0, 0.12, 0.001),
       n('uAmbDark', 'Ambient (section)', 0, 0.12, 0.001),
       c('uDuskTint', 'Dusk tint', 1.3),

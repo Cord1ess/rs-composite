@@ -35,6 +35,7 @@ export function buildEarthMaterial(
     landMap: DataTexture
     borderMap: DataTexture
     cloudMap: DataTexture | null
+    normalMap: DataTexture
     noiseTex: DataTexture
   },
 ): ShaderMaterial {
@@ -45,6 +46,7 @@ export function buildEarthMaterial(
       uBorders: { value: maps.borderMap },
       uNoise: { value: maps.noiseTex },
       uClouds: { value: maps.cloudMap ?? maps.noiseTex },
+      uNormals: { value: maps.normalMap },
       uSun: sky.sun,
       uDark: sky.dark,
       uCloudShift: sky.cloudShift,

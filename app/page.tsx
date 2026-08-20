@@ -29,6 +29,7 @@ export default function HomePage() {
   preload('/textures/land.webp', { as: 'fetch', crossOrigin: 'anonymous' })
   preload('/textures/borders.webp', { as: 'fetch', crossOrigin: 'anonymous' })
   preload('/textures/clouds.webp', { as: 'fetch', crossOrigin: 'anonymous' })
+  preload('/textures/normals.webp', { as: 'fetch', crossOrigin: 'anonymous' })
   preload('/textures/galaxy.avif', { as: 'image', type: 'image/avif' })
 
   return (

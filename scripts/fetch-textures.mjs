@@ -33,7 +33,6 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { geoEquirectangular, geoPath } from 'd3-geo'
-import { feature, mesh } from 'topojson-client'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = resolve(root, 'public/textures')
@@ -73,29 +72,78 @@ const SIZES = {
   /* Thin lines on black. Needs the resolution to stay crisp, but compresses
      almost to nothing because the rest of the frame is empty. */
   borders: [4096, 2048],
-  /* The shell's coverage channel. 2560 plus the fBm detail baked in by
-     cloudMask holds up at the entry crop; resolution alone did not. */
-  clouds: [2560, 1280],
+  /* The shell's coverage channel. 3072 (audit IV, M1: fed by Patterson's
+     hand-cleaned 8K source) plus the fBm detail baked in by cloudMask. */
+  clouds: [3072, 1536],
+  /* The terrain normal map (V1): low-frequency relief, so it needs fewer
+     texels than the maps that carry edges. */
+  normals: [4096, 2048],
 }
+
+/* Natural Earth 10m GeoJSON (audit IV, M2): five times the coastline and
+   border detail of the 50m topojson, feeding the border SDF and the
+   land/water mask. Bake-time only. */
+const NE10M = {
+  countries: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson',
+  boundaries: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_boundary_lines_land.geojson',
+  coastline: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_coastline.geojson',
+  land: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson',
+}
+
+/*
+  Art-direction switches (audit IV). Each is a one-line flip and a re-bake.
+
+  BMNG_MONTH (M3): which month of the Blue Marble 2004 series feeds land
+  brightness, the ice gate and the night-light snow suppression. September
+  confines the rendered ice caps to true ice sheets (Greenland, the
+  Himalaya); December drapes the whole boreal north in snow.
+
+  CLOUD_SOURCE (M1): 'storm' and 'fair' are Tom Patterson's hand-retouched
+  Natural Earth III decks (public domain, seam- and pole-cleaned); 'nasa'
+  is the original MODIS composite this project started with.
+
+  STARFIELD (M7): 'eso' grades the real Milky Way panorama (ESO/S. Brunier,
+  CC BY 4.0 — keep the credit in the asset manifest); 'plate' uses the
+  supplied Galaxy BG.png as before.
+*/
+const BMNG_MONTH = '200409'
+const CLOUD_SOURCE = 'storm'
+const STARFIELD = 'eso'
+
+const BMNG_RECORDS = { '200409': 73801, '200412': 73909 }
 
 const SETS = {
   day: [
     /* 28 MB, 21600 by 10800. The 5400 version was tried first and is not enough
        resolution once the globe is cropped this hard. */
-    ['NASA Visible Earth 21600, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x21600x10800.jpg'],
+    [`NASA Visible Earth BMNG ${BMNG_MONTH}, public domain`, `https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/${BMNG_RECORDS[BMNG_MONTH]}/world.topo.bathy.${BMNG_MONTH}.3x21600x10800.jpg`],
     ['NASA Visible Earth 5400, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x5400x2700.jpg'],
+  ],
+  elev: [
+    /* Land elevation, the sister grid of the bathymetry below: feeds the
+       terrain normal map (V1). Ocean is black, so the sea stays flat. */
+    ['NASA GEBCO 08 elevation, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'],
+  ],
+  stars: [
+    ['ESO/S. Brunier Milky Way panorama, CC BY 4.0', 'https://cdn.eso.org/images/large/eso0932a.jpg'],
   ],
   night: [
     ['NASA Black Marble 2016 3km, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_3km.jpg'],
     ['NASA Black Marble 2016 0.1deg, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_01deg.jpg'],
   ],
-  clouds: [
-    /* 8192x4096 real cloud composite, 34 MB TIFF. The 2048 version below was
-       tried first and looked blocky once wrapped on the sphere. */
-    ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
-    ['solarsystemscope, CC BY 4.0', 'https://www.solarsystemscope.com/textures/download/8k_earth_clouds.jpg'],
-    ['NASA Blue Marble clouds 2k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg'],
-  ],
+  clouds:
+    CLOUD_SOURCE === 'nasa'
+      ? [
+          ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
+          ['NASA Blue Marble clouds 2k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg'],
+        ]
+      : [
+          [
+            `Natural Earth III ${CLOUD_SOURCE} clouds (Tom Patterson), public domain`,
+            `http://shadedrelief.com/natural3/ne3_data/8192/clouds/${CLOUD_SOURCE}_clouds_8k.jpg`,
+          ],
+          ['NASA Blue Marble clouds 8k, public domain', 'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_8192.tif'],
+        ],
   tour: [
     /* Demo panorama for the facility tour section: a real machine hall
        standing in for ours until the facility shoot. CC0. */
@@ -116,6 +164,22 @@ const SETS = {
 
 const mb = (n) => `${(n / 1024 / 1024).toFixed(2)} MB`
 const kb = (n) => `${(n / 1024).toFixed(0)} kB`
+
+/** grab() for JSON sources: same cache, no image metadata. */
+async function grabJson(url, label) {
+  const cached = resolve(cacheDir, createHash('sha1').update(url).digest('hex'))
+  if (existsSync(cached)) {
+    console.log(`  ${label}: cached`)
+    return JSON.parse(readFileSync(cached, 'utf8'))
+  }
+  process.stdout.write(`  ${label}: ${new URL(url).host} ... `)
+  const res = await fetch(url, { redirect: 'follow' })
+  if (!res.ok) throw new Error(`${label}: HTTP ${res.status}`)
+  const text = await res.text()
+  console.log(`ok, ${mb(Buffer.byteLength(text))}`)
+  writeFileSync(cached, text)
+  return JSON.parse(text)
+}
 
 async function grab(sources, label) {
   for (const [licence, url] of sources) {
@@ -174,9 +238,6 @@ const clamp = (v) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v))
   reach the browser: what ships is the rasterised WebP.
 */
 async function borderSDF([w, h]) {
-  const topo = JSON.parse(
-    readFileSync(resolve(root, 'node_modules/world-atlas/countries-50m.json'), 'utf8'),
-  )
   /*
     Distance fields, not strokes (the third border pipeline, and the last).
 
@@ -197,18 +258,21 @@ async function borderSDF([w, h]) {
   */
   const W = w * 2
   const H = h * 2
-  /* 50m rather than 110m. At 4096 wide the 110m outlines are visibly faceted. */
+  /* Natural Earth 10m (audit IV, M2): the coastline and the de facto
+     boundary lines ship as ready-made linework, so no topology juggling;
+     Bangladesh's own ring comes from the countries file. */
   const projection = geoEquirectangular()
     .translate([W / 2, H / 2])
     .scale(W / (2 * Math.PI))
   const path = geoPath(projection)
 
-  const coast = mesh(topo, topo.objects.countries, (a, b) => a === b)
-  const inland = mesh(topo, topo.objects.countries, (a, b) => a !== b)
-  const bd = feature(topo, topo.objects.countries).features.find(
-    (f) => f.properties.name === 'Bangladesh',
+  const coast = await grabJson(NE10M.coastline, 'coastline 10m')
+  const inland = await grabJson(NE10M.boundaries, 'boundaries 10m')
+  const countries = await grabJson(NE10M.countries, 'countries 10m')
+  const bd = countries.features.find(
+    (f) => (f.properties.ADMIN ?? f.properties.NAME) === 'Bangladesh',
   )
-  if (!bd) throw new Error('Bangladesh not found in world-atlas countries-50m')
+  if (!bd) throw new Error('Bangladesh not found in ne_10m_admin_0_countries')
 
   const rasterize = async (paths) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
@@ -297,14 +361,12 @@ ${paths.map((d) => `<path d="${d}"/>`).join('\n')}
   seamless across the shoreline.
 */
 async function coastMask([w, h]) {
-  const topo = JSON.parse(
-    readFileSync(resolve(root, 'node_modules/world-atlas/land-50m.json'), 'utf8'),
-  )
   const projection = geoEquirectangular()
     .translate([w / 2, h / 2])
     .scale(w / (2 * Math.PI))
   const path = geoPath(projection)
-  const land = feature(topo, topo.objects.land)
+  /* 10m land polygons (M2), same cartography family as the border SDF. */
+  const land = await grabJson(NE10M.land, 'land 10m')
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
 <rect width="${w}" height="${h}" fill="#000"/>
@@ -479,21 +541,45 @@ used.push(['borders.webp', 'Natural Earth via world-atlas, public domain', 'coun
   the source PNG sitting in the repo root. Both formats, picked by image-set().
 */
 console.log('Galaxy background')
-const galaxySrc = resolve(root, 'Galaxy BG.png')
-if (existsSync(galaxySrc)) {
-  const g = readFileSync(galaxySrc)
-  /* The source plate is green; the site's palette moved to a blue planet with
-     gold accents, so the hue rotates to match. Keep in sync with the values
-     used when the plate was regenerated. */
-  const webp = await sharp(g).modulate({ hue: 100, saturation: 0.95 }).webp({ quality: 86, effort: 6 }).toBuffer()
-  const avif = await sharp(g).modulate({ hue: 100, saturation: 0.95 }).avif({ quality: 58, effort: 6 }).toBuffer()
+if (STARFIELD === 'eso') {
+  /*
+    The real sky (audit IV, M7): ESO's Milky Way panorama, graded into the
+    site's world. Cover-cropped to the galactic band, dimmed well below the
+    planet's brightness, desaturated, and cooled with a blue-leaning tint
+    so the warm dust lanes can't reintroduce the purple-halo fight. CC BY:
+    the ESO/S. Brunier credit must ship in the asset manifest.
+  */
+  const stars = await grab(SETS.stars, 'try')
+  const grade = () =>
+    sharp(stars.buf)
+      .resize(2048, 1152, { fit: 'cover', position: 'centre' })
+      .modulate({ brightness: 0.62, saturation: 0.72 })
+      .tint({ r: 168, g: 200, b: 255 })
+      /* Lift the band's mids, hold the black floor. */
+      .linear(1.06, -8)
+  const webp = await grade().webp({ quality: 86, effort: 6 }).toBuffer()
+  const avif = await grade().avif({ quality: 58, effort: 6 }).toBuffer()
   writeFileSync(resolve(outDir, 'galaxy.webp'), webp)
   writeFileSync(resolve(outDir, 'galaxy.avif'), avif)
   total += webp.length + avif.length
   console.log(`  galaxy.webp ${kb(webp.length)}, galaxy.avif ${kb(avif.length)}`)
-  used.push(['galaxy.webp/avif', 'supplied artwork', 'Galaxy BG.png'])
+  used.push(['galaxy.webp/avif', stars.licence, stars.url])
 } else {
-  console.log('  Galaxy BG.png not found in the repo root, skipped')
+  const galaxySrc = resolve(root, 'Galaxy BG.png')
+  if (existsSync(galaxySrc)) {
+    const g = readFileSync(galaxySrc)
+    /* The source plate is green; the site's palette moved to a blue planet
+       with gold accents, so the hue rotates to match. */
+    const webp = await sharp(g).modulate({ hue: 100, saturation: 0.95 }).webp({ quality: 86, effort: 6 }).toBuffer()
+    const avif = await sharp(g).modulate({ hue: 100, saturation: 0.95 }).avif({ quality: 58, effort: 6 }).toBuffer()
+    writeFileSync(resolve(outDir, 'galaxy.webp'), webp)
+    writeFileSync(resolve(outDir, 'galaxy.avif'), avif)
+    total += webp.length + avif.length
+    console.log(`  galaxy.webp ${kb(webp.length)}, galaxy.avif ${kb(avif.length)}`)
+    used.push(['galaxy.webp/avif', 'supplied artwork', 'Galaxy BG.png'])
+  } else {
+    console.log('  Galaxy BG.png not found in the repo root, skipped')
+  }
 }
 
 /*
@@ -612,6 +698,44 @@ async function cloudMask(src, [w, h]) {
   /* Same density curve the flat bake used: crush the thin haze, keep cores. */
   return () => sharp(out, { raw: { width: w, height: h, channels: 1 } }).linear(1.55, -28)
 }
+
+/*
+  The terrain normal map (audit IV, V1).
+
+  Central differences over the GEBCO land elevation, packed RG (x east,
+  y north, z reconstructed in the shader). The ocean is black in the
+  source, so the sea floor stays flat and the relief belongs to land
+  alone. The slope gain is baked generously and the shader's uReliefAmt
+  scales it down: one slider, tuned live like everything else.
+*/
+async function normalMask(elevSrc, [w, h]) {
+  const eb = await sharp(elevSrc).resize(w, h, { fit: 'fill' }).removeAlpha().greyscale().raw().toBuffer()
+  const out = Buffer.alloc(w * h * 3)
+  const S = 6.0
+  for (let y = 0; y < h; y++) {
+    const yN = Math.max(0, y - 1)
+    const yS = Math.min(h - 1, y + 1)
+    for (let x = 0; x < w; x++) {
+      const xW = (x - 1 + w) % w
+      const xE = (x + 1) % w
+      /* +x east; +y NORTH — the client flips rows to GL order, so what is
+         "up" in this image is v=1 after extraction. */
+      const dx = ((eb[y * w + xE] - eb[y * w + xW]) / 2 / 255) * S
+      const dy = ((eb[yN * w + x] - eb[yS * w + x]) / 2 / 255) * S
+      const inv = 1 / Math.hypot(dx, dy, 1)
+      const o = (y * w + x) * 3
+      out[o] = clamp((-dx * inv * 0.5 + 0.5) * 255)
+      out[o + 1] = clamp((-dy * inv * 0.5 + 0.5) * 255)
+      out[o + 2] = 0
+    }
+  }
+  return () => sharp(out, { raw: { width: w, height: h, channels: 3 } })
+}
+
+console.log('Terrain normals')
+const elev = await grab(SETS.elev, 'try')
+used.push(['normals.webp', elev.licence, elev.url])
+await writeGraded('normals.webp', await normalMask(elev.buf, SIZES.normals), 88)
 
 console.log('Cloud layer')
 const cloud = await grab(SETS.clouds, 'try')

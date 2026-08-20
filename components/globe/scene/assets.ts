@@ -23,6 +23,7 @@ export type EarthBitmaps = {
   land: ImageBitmap
   borders: ImageBitmap
   clouds: ImageBitmap | null
+  normals: ImageBitmap
 }
 
 export type EarthMaps = {
@@ -30,6 +31,7 @@ export type EarthMaps = {
   landMap: DataTexture
   borderMap: DataTexture
   cloudMap: DataTexture | null
+  normalMap: DataTexture
 }
 
 export async function fetchEarthBitmaps(
@@ -38,22 +40,27 @@ export async function fetchEarthBitmaps(
   signal?: AbortSignal,
 ): Promise<EarthBitmaps> {
   /* Weights are rough file-size shares, so the loading bar moves honestly. */
-  const parts = { lights: 0, land: 0, borders: 0, clouds: clouds ? 0 : 1 }
+  const parts = { lights: 0, land: 0, borders: 0, clouds: clouds ? 0 : 1, normals: 0 }
   const push = () =>
     onProgress?.(
-      parts.lights * 0.4 + parts.land * 0.25 + parts.borders * 0.15 + parts.clouds * 0.2,
+      parts.lights * 0.3 +
+        parts.land * 0.2 +
+        parts.borders * 0.2 +
+        parts.clouds * 0.2 +
+        parts.normals * 0.1,
     )
 
-  const [lights, land, borders, cloudsBm] = await Promise.all([
+  const [lights, land, borders, cloudsBm, normals] = await Promise.all([
     fetchBitmap('/textures/lights.webp', (f) => ((parts.lights = f), push()), signal),
     fetchBitmap('/textures/land.webp', (f) => ((parts.land = f), push()), signal),
     fetchBitmap('/textures/borders.webp', (f) => ((parts.borders = f), push()), signal),
     clouds
       ? fetchBitmap('/textures/clouds.webp', (f) => ((parts.clouds = f), push()), signal)
       : Promise.resolve(null),
+    fetchBitmap('/textures/normals.webp', (f) => ((parts.normals = f), push()), signal),
   ])
 
-  return { lights, land, borders, clouds: cloudsBm }
+  return { lights, land, borders, clouds: cloudsBm, normals }
 }
 
 export function prepareEarthMaps(bitmaps: EarthBitmaps, renderer: WebGLRenderer): EarthMaps {
@@ -63,8 +70,10 @@ export function prepareEarthMaps(bitmaps: EarthBitmaps, renderer: WebGLRenderer)
   const lightsMap = extractChannel(bitmaps.lights, 'max')
   const landMap = extractChannel(bitmaps.land, 'r')
   /* The borders ship as a two-channel distance field: R is distance to any
-     border, G distance to Bangladesh's outline. */
+     border, G distance to Bangladesh's outline. The normals pack terrain
+     slope the same RG way, z reconstructed in the shader. */
   const borderMap = extractChannel(bitmaps.borders, 'rg')
+  const normalMap = extractChannel(bitmaps.normals, 'rg')
   const cloudMap = bitmaps.clouds ? extractChannel(bitmaps.clouds, 'r') : null
 
   const maxAniso = renderer.capabilities.getMaxAnisotropy()
@@ -79,11 +88,13 @@ export function prepareEarthMaps(bitmaps: EarthBitmaps, renderer: WebGLRenderer)
   lightsMap.anisotropy = Math.min(maxAniso, 4)
   landMap.anisotropy = Math.min(maxAniso, 8)
   borderMap.anisotropy = Math.min(maxAniso, 8)
+  /* Relief is low-frequency; level 4 is plenty. */
+  normalMap.anisotropy = Math.min(maxAniso, 4)
   if (cloudMap) {
     cloudMap.anisotropy = Math.min(maxAniso, 8)
     /* The deck drifts and its taps cross the seam; it must wrap. */
     cloudMap.wrapS = RepeatWrapping
   }
 
-  return { lightsMap, landMap, borderMap, cloudMap }
+  return { lightsMap, landMap, borderMap, cloudMap, normalMap }
 }

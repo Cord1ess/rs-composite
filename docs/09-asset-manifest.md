@@ -5,49 +5,44 @@ milestone one only, **Blocker**.
 
 ## Hero background
 
-| Asset | Source | Status |
+Current as of audit IV (2026-08-19). `npm run textures` regenerates all of
+these; sources cache in `.texture-cache/`, gitignored. Art-direction switches
+(`BMNG_MONTH`, `CLOUD_SOURCE`, `STARFIELD`) sit at the top of
+`scripts/fetch-textures.mjs`.
+
+| Asset | Source | Notes |
 |---|---|---|
-| `public/textures/lights.webp` | NASA Black Marble 2016, city lights | Have. 161 kB, 4096 by 2048. |
-| `public/textures/land.webp` | Land silhouette, greyscale, derived from Blue Marble | Have. 180 kB, 3072 by 1536. |
-| `public/textures/stars.webp` | NASA SVS Deep Star Maps 2015, all sky survey | Have. 145 kB, 4096 by 2048. |
+| `public/textures/lights.webp` | NASA Black Marble 2016 (13500px) | 5120×2560. Ice/snow glow suppressed at bake using the day map. |
+| `public/textures/land.webp` | Blue Marble BMNG Sept 2004 + GEBCO 08 bathymetry + NE 10m land mask | 5120×2560. One channel: depth below 0.5, land brightness above. |
+| `public/textures/normals.webp` | GEBCO 08 elevation | 4096×2048 RG terrain normals for relief lighting. |
+| `public/textures/borders.webp` | Natural Earth 10m (coastline, boundary lines, countries) | 4096×2048 RG distance field, lossless. |
+| `public/textures/clouds.webp` | Natural Earth III storm clouds (Tom Patterson) | 3072×1536, fBm detail enhancement at bake. |
+| `public/textures/galaxy.webp/.avif` | ESO/S. Brunier Milky Way panorama | 2048×1152, graded blue. **CC BY 4.0 — see below.** |
+| `public/textures/hero-fallback.webp` | baked from the live globe (`npm run fallback`) | static stand-in for gated and failed visitors |
 
-**486 kB total, down from 2639.** There is no albedo map and no cloud map. The
-planet's colour is generated in the shader from a three colour palette, and the
-only surface data shipped is where the cities are and where the land is.
-
-Reasoning and measurements in [04-hero-spec.md](04-hero-spec.md).
-
-The four sources are 70 MB together, so `npm run textures` caches them in
-`.texture-cache/`, gitignored. Re-encoding at a different quality does not mean
-downloading them again.
-
-`public/globe.svg` and the script that generated it were deleted along with the
-flat fallback tier. So were `d3-geo`, `topojson-client` and `world-atlas`.
-
-No client photography or licensing is involved. All four textures are public
-domain NASA imagery, fetched and converted once by `npm run textures` and
-committed, so no build ever depends on a third party host being reachable.
+**Attribution requirement.** Everything above is public domain EXCEPT the
+galaxy backdrop: ESO material is CC BY 4.0 and requires a visible credit.
+Add a line such as "Milky Way imagery: ESO/S. Brunier (CC BY 4.0)" to the
+site's credits/privacy page before launch. If that is unwanted, flip
+`STARFIELD` back to `'plate'` and rebake.
 
 Source URLs, for the record:
 
 ```
-day     eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/
-          world.topo.bathy.200412.3x21600x10800.jpg     21600x10800
-night   eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/
-          BlackMarble_2016_3km.jpg                       13500x6750
-clouds  eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/
-          cloud_combined_8192.tif                         8192x4096
-stars   svs.gsfc.nasa.gov/vis/a000000/a003800/a003895/
-          starmap_16k.jpg                                16384x8192
+day      eoimages.gsfc.nasa.gov/images/imagerecords/73000/73801/
+           world.topo.bathy.200409.3x21600x10800.jpg    21600x10800
+night    eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/
+           BlackMarble_2016_3km.jpg                     13500x6750
+bathy    eoimages.gsfc.nasa.gov/images/imagerecords/73000/73963/
+           gebco_08_rev_bath_21600x10800.png            21600x10800
+elev     eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/
+           gebco_08_rev_elev_21600x10800.png            21600x10800
+clouds   shadedrelief.com/natural3/ne3_data/8192/clouds/
+           storm_clouds_8k.jpg                           8192x4096
+stars    cdn.eso.org/images/large/eso0932a.jpg           6000x3000
+vectors  raw.githubusercontent.com/nvkelso/natural-earth-vector/
+           master/geojson/ne_10m_*.geojson
 ```
-
-The cloud map gets a contrast push during conversion, `linear(1.65, -26)`. The
-raw composite is thin once wrapped on a sphere, because a lot of it sits at low
-luminance, which becomes low alpha, which reads as haze rather than as weather.
-
-Public domain, so no attribution line is required anywhere on the site. The
-widely used solarsystemscope.com set is CC BY 4.0 and would have required one,
-which is a second reason to have landed on NASA.
 
 ## Video
 
