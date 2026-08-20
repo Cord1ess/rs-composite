@@ -82,6 +82,7 @@ export const SECTIONS: TuneSection[] = [
       n('uBdPx', 'Bangladesh width (px)', 0.4, 6, 0.05),
       n('uBorderInt', 'Border intensity', 0, 1.5, 0.05),
       n('uBdInt', 'Bangladesh intensity', 0, 1.5, 0.05),
+      n('uBorderFar', 'Borders zoomed out', 0, 1),
     ],
   },
   {

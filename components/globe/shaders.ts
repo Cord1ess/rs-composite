@@ -216,6 +216,7 @@ export const earthShader = {
           uniform float uBdPx;
           uniform float uBorderInt;
           uniform float uBdInt;
+          uniform float uBorderFar;
           uniform float uGlintExp;
           uniform float uLaneTight;
           uniform float uGlintFresW;
@@ -485,7 +486,14 @@ export const earthShader = {
             float bwB = max(fwidth(bfield.y), 1e-5);
             float lineBd = 1.0 - smoothstep((uBdPx * 0.5 - 0.7) * bwB,
                                             (uBdPx * 0.5 + 0.7) * bwB, bfield.y);
-            float border = max(lineAll * uBorderInt, lineBd * uBdInt);
+            /* Constant screen-pixel width means constant per-pixel energy,
+               but the ball view packs several times the border length into
+               a fraction of the area, so the same lines read bolder the
+               further out the view sits. uDark rides the scroll settle and
+               is the zoom state: full strength in the hero, attenuated to
+               uBorderFar once settled, blending through the scrub. */
+            float border = max(lineAll * uBorderInt, lineBd * uBdInt)
+                         * mix(1.0, uBorderFar, uDark);
             color += uCity * border * (uBorderLit - uBorderDay * daylight);
 
             /*
