@@ -741,6 +741,55 @@
   reduced-motion handling. Nothing about it is styled from here.
 */
 
+/* ----------------------------------------------------- globe markers */
+
+/*
+  The market markers on the globe: a small warm point with a pulse ring
+  breathing out of it. Pure compositor work in the DOM, so the parked
+  showcase keeps its idle skip — the canvas renders nothing while these
+  animate. Deliberately outside the reduced-motion block below: the globe's
+  presentation ignores that signal by owner decision (Windows performance
+  mode reports reduce and froze the centrepiece once already).
+*/
+.marker-pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: rgb(255 243 224 / 0.95);
+  box-shadow: 0 0 6px rgb(255 220 170 / 0.7);
+}
+
+.marker-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 243 224 / 0.85);
+  animation: marker-ping 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation-delay: inherit;
+}
+
+.marker-pulse-lg {
+  width: 7px;
+  height: 7px;
+}
+
+@keyframes marker-ping {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.9;
+  }
+  65%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
 /* ------------------------------------------------------- scroll cue */
 
 .scroll-cue {

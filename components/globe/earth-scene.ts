@@ -13,7 +13,6 @@
 
 import { ease } from '@/lib/scroll-progress'
 import {
-  AdditiveBlending,
   BufferAttribute,
   CatmullRomCurve3,
   Group,
@@ -51,6 +50,7 @@ import {
   toVector,
   vantageDip,
 } from './config'
+import { arcShader } from './shaders'
 import { makeNoiseTexture } from './textures'
 import { TUNE } from './tune'
 import { SkyState } from './scene/sky-state'
@@ -92,9 +92,7 @@ export class EarthScene {
   private root = new Group()
   private tilt = new Group()
   private world = new Group()
-  private arcs: { mesh: Mesh; total: number; curve: CatmullRomCurve3 }[] = []
-  private pulses: { mesh: Mesh; curve: CatmullRomCurve3; phase: number }[] = []
-  private pulsePos = new Vector3()
+  private arcs: { mesh: Mesh; total: number; mat: ShaderMaterial }[] = []
 
   /** The shared uniform table and runtime sky uniforms: see scene/sky-state. */
   private sky = new SkyState()
@@ -478,15 +476,10 @@ export class EarthScene {
       const at = toVector(place.lon, place.lat, MARKER_R)
       this.projector.add(place.id, at)
 
-      const isOrigin = place.id === this.opts.originId
-      const dot = new Mesh(
-        new SphereGeometry(isOrigin ? 0.009 : 0.006, 12, 10),
-        new MeshBasicMaterial({ color: 0xfff3e0 }),
-      )
-      dot.position.copy(at)
-      this.world.add(dot)
-
-      if (isOrigin) continue
+      /* No bead in the scene any more: the marker is a pulsing DOM circle
+         riding the projector's positions (Earth3D), which animates on the
+         compositor without ever waking this render loop. */
+      if (place.id === this.opts.originId) continue
 
       const to = toVector(place.lon, place.lat, EARTH_R)
       const angle = originVec.angleTo(to)
@@ -502,55 +495,35 @@ export class EarthScene {
       }
 
       const curve = new CatmullRomCurve3(points)
-      const tube = new TubeGeometry(curve, 96, 0.0016, 6, false)
+      /* Thin: three quarters of the old stroke — 0.001 vanished at the
+         showcase distance, where the tube drops below a pixel. The
+         brightness lives in the shader's base alpha, not in width. */
+      const tube = new TubeGeometry(curve, 96, 0.0012, 6, false)
 
       /*
-        The taper. Vertex alpha runs from near solid at the origin to a
-        third at the destination, so every route visibly leaves Bangladesh
-        rather than connecting two equal points. Free at render time: it is
-        four bytes a vertex, baked once.
+        Position along the route, 0 at the origin, 1 at the market, baked
+        per vertex. The shader tapers the line against it and runs the
+        light sweep along it. TubeGeometry lays vertices out in rings of
+        radialSegments + 1, so the ring index is the tubular position.
       */
       const vCount = tube.attributes.position.count
-      const colors = new Float32Array(vCount * 4)
-      for (let v = 0; v < vCount; v++) {
-        const t = Math.floor(v / 7) / 96
-        colors[v * 4] = 1
-        colors[v * 4 + 1] = 1
-        colors[v * 4 + 2] = 1
-        colors[v * 4 + 3] = 0.92 - 0.6 * t
-      }
-      tube.setAttribute('color', new BufferAttribute(colors, 4))
+      const along = new Float32Array(vCount)
+      for (let v = 0; v < vCount; v++) along[v] = Math.floor(v / 7) / 96
+      tube.setAttribute('aT', new BufferAttribute(along, 1))
 
-      const mesh = new Mesh(
-        tube,
-        new MeshBasicMaterial({ vertexColors: true, transparent: true }),
-      )
+      const mat = new ShaderMaterial({
+        transparent: true,
+        uniforms: { uSweep: { value: -2 }, uAmp: { value: 0 } },
+        vertexShader: arcShader.vertexShader,
+        fragmentShader: arcShader.fragmentShader,
+      })
+      const mesh = new Mesh(tube, mat)
       /* Above the cloud shell (renderOrder 1): routes fly over the weather. */
       mesh.renderOrder = 2
       const total = tube.index ? tube.index.count : 0
       tube.setDrawRange(0, this.opts.motion ? 0 : total)
-      this.arcs.push({ mesh, total, curve })
+      this.arcs.push({ mesh, total, mat })
       this.world.add(mesh)
-
-      /*
-        The pulse: a small bright bead travelling the route, implying
-        direction. Hero phase only, where the tour already keeps the loop
-        rendering, so the beads cost no extra frames; the showcase stays
-        still and keeps its idle skip.
-      */
-      const pulse = new Mesh(
-        new SphereGeometry(0.0075, 10, 8),
-        new MeshBasicMaterial({
-          color: 0xfff3e0,
-          transparent: true,
-          opacity: 0,
-          blending: AdditiveBlending,
-          depthWrite: false,
-        }),
-      )
-      pulse.renderOrder = 3
-      this.pulses.push({ mesh: pulse, curve, phase: this.pulses.length * 0.23 })
-      this.world.add(pulse)
     }
 
     if (!this.opts.motion) this.arcProgress = 1
@@ -788,25 +761,31 @@ export class EarthScene {
     }
 
     /*
-      Route pulses, hero phase only: the tour keeps the loop rendering there
-      anyway, so the beads ride along free. They fade out with the settle so
-      the showcase stays still and keeps its idle skip.
+      The route sweep, hero phase only: the tour keeps the loop rendering
+      there anyway, so the light rides along free. It fades out with the
+      settle so the showcase stays still and keeps its idle skip. A frozen
+      tour ($tourSpin 0, the verify harness's seed) parks the sweep too:
+      the goldens capture the still design, and wall-clock light would be
+      the only nondeterminism left in a frame.
     */
-    if (this.opts.motion && this.arcProgress >= 1 && this.settle < 0.999) {
+    if (
+      this.opts.motion &&
+      this.tourSpin !== 0 &&
+      this.arcProgress >= 1 &&
+      this.settle < 0.999
+    ) {
       const strength = 1 - this.settle
-      for (const pulse of this.pulses) {
-        const t = MathUtils.euclideanModulo(time / 4200 + pulse.phase, 1)
-        pulse.curve.getPoint(t, this.pulsePos)
-        pulse.mesh.position.copy(this.pulsePos)
-        /* Bright through the middle of the journey, soft at both ends. */
-        const along = Math.sin(Math.PI * t)
-        ;(pulse.mesh.material as MeshBasicMaterial).opacity = 0.85 * along * strength
-      }
+      this.arcs.forEach((arc, i) => {
+        const t = MathUtils.euclideanModulo(time / 5600 + i * 0.27, 1)
+        /* Enter from before the line, exit past its end, then rest: the
+           front never pops in or out. */
+        const sweep = -0.25 + t * 2.1
+        arc.mat.uniforms.uSweep.value = sweep <= 1.25 ? sweep : -2
+        arc.mat.uniforms.uAmp.value = strength
+      })
       this.needsDraw = true
-    } else if (this.settle >= 0.999) {
-      for (const pulse of this.pulses) {
-        ;(pulse.mesh.material as MeshBasicMaterial).opacity = 0
-      }
+    } else if (this.settle >= 0.999 || this.tourSpin === 0) {
+      for (const arc of this.arcs) arc.mat.uniforms.uAmp.value = 0
     }
 
     /* Idle skip: see the field block. Anything that would change the picture

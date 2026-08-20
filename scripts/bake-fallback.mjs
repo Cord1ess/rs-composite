@@ -49,13 +49,22 @@ await page.waitForFunction(
 )
 await new Promise((r) => setTimeout(r, 8000))
 
+/* The marker circles STAY in the bake: since the scene lost its baked-in
+   beads they are the only dots the design has. Their pulse rings animate
+   on wall clock, so they are frozen off; the ring is motion, the point is
+   the marker. */
+await page.addStyleTag({
+  content: '.marker-pulse::after { animation: none !important; opacity: 0 !important; }',
+})
+
 await page.evaluate(() => {
   const hide = (el) => {
     el.style.visibility = 'hidden'
   }
   document.querySelectorAll('.hero-copy, .hero-network, .hero-scrim, .globe-leaders').forEach(hide)
-  /* Marker dots and hover layers are siblings of the canvas. */
-  document.querySelectorAll('canvas ~ div, canvas ~ svg').forEach(hide)
+  /* Leader lines and the origin's text ride out; the marker layer itself
+     is part of the planet's look now. */
+  document.querySelectorAll('canvas ~ svg, .marker-origin-label').forEach(hide)
   /* All fixed chrome: header, dev button, badges. */
   for (const el of document.body.querySelectorAll('*')) {
     if (getComputedStyle(el).position === 'fixed') hide(el)

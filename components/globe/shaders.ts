@@ -834,3 +834,43 @@ export const cloudShader = {
           }
         `,
 }
+
+/*
+  The route lines. Thin bright strokes from Bangladesh to each market, with
+  the movement carried by the line itself: a soft front of light leaves the
+  origin, travels the length, and slips off the far end — no object riding
+  the route. The old design flew an additive bead along each arc; it read
+  as traffic where this reads as signal.
+
+  uSweep is the front's position along the line, 0 at the origin, 1 at the
+  market; the sweep enters from below 0 and exits past 1 so it never pops.
+  Anything far outside that range parks the line at its base look. uAmp
+  fades the whole effect with the showcase settle, so the parked globe
+  renders a still line and keeps its idle skip.
+*/
+export const arcShader = {
+  vertexShader: `
+          attribute float aT;
+          varying float vT;
+          void main() {
+            vT = aT;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+  fragmentShader: `
+          uniform float uSweep;
+          uniform float uAmp;
+          varying float vT;
+          void main() {
+            /* Near solid at the origin, tapering toward the market, so
+               every route visibly leaves Bangladesh. */
+            float alpha = mix(0.95, 0.5, vT);
+            float d = (vT - uSweep) * 9.0;
+            float sweep = exp(-d * d) * uAmp;
+            alpha = min(1.0, alpha + sweep * 0.7);
+            /* Warm white at rest, whitening to pure under the front. */
+            vec3 col = mix(vec3(1.0, 0.95, 0.88), vec3(1.0), sweep);
+            gl_FragColor = vec4(col, alpha);
+          }
+        `,
+}

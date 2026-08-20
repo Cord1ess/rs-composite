@@ -502,9 +502,10 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
         ))}
       </div>
 
-      {/* Markers and their hover cards. */}
-      <div className="pointer-events-none absolute inset-0 hidden lg:block">
-        {places.map((place) => {
+      {/* Markers and their hover cards. Visible at every breakpoint: since
+          the scene lost its baked-in beads, these circles ARE the markers. */}
+      <div className="pointer-events-none absolute inset-0">
+        {places.map((place, index) => {
           const isOrigin = place.id === 'origin'
           const isActive = active === place.id
           return (
@@ -517,6 +518,14 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
               className="absolute left-0 top-0 opacity-0 transition-opacity duration-300"
             >
               <div className="-translate-x-1/2 -translate-y-1/2">
+                {/* The marker itself: a small warm point breathing a pulse
+                    ring, pure compositor work while the canvas idles. The
+                    stagger keeps six rings from ever beating in unison. */}
+                <span
+                  aria-hidden
+                  className={cn('marker-pulse', isOrigin && 'marker-pulse-lg')}
+                  style={{ animationDelay: `${index * 0.45}s` }}
+                />
                 <button
                   type="button"
                   aria-label={
@@ -536,7 +545,7 @@ export default function Earth3D({ motion, onFail }: { motion: boolean; onFail?: 
                   )}
                 />
                 {isOrigin ? (
-                  <span className="pointer-events-none absolute left-7 top-1 whitespace-nowrap text-[0.65rem] uppercase tracking-[0.18em] text-white/85 [text-shadow:0_1px_4px_rgba(0,0,0,0.9)]">
+                  <span className="marker-origin-label pointer-events-none absolute left-7 top-1 whitespace-nowrap text-[0.65rem] uppercase tracking-[0.18em] text-white/85 [text-shadow:0_1px_4px_rgba(0,0,0,0.9)]">
                     Bangladesh
                   </span>
                 ) : null}

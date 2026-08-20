@@ -128,6 +128,12 @@ async function capture(view) {
         document.documentElement.style.overflow !== 'hidden',
       { timeout: 60000 },
     )
+    /* The DOM marker rings pulse on wall clock; the goldens capture the
+       still design. The canvas-side route sweep is already parked by the
+       tune seed ($tourSpin 0). */
+    await page.addStyleTag({
+      content: '.marker-pulse::after { animation: none !important; opacity: 0 !important; }',
+    })
     await new Promise((r) => setTimeout(r, 8000))
     if (view.scroll > 0) {
       await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'instant' }), view.scroll)
