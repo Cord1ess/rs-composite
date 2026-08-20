@@ -4,10 +4,15 @@ import { useEffect } from 'react'
 import { pageRevealed } from '@/lib/hero-loader'
 
 /*
-  Section based scrolling for the home page.
+  Section based scrolling for the home page: scrub, then settle.
 
-  Free scroll is replaced by a conductor: every wheel flick, vertical swipe or
-  paging key moves the page to the next stop with one eased tween. The stops:
+  The visitor's wheel, swipe or paging keys own the position directly — a
+  scrub loop follows the input with light smoothing, so travel can stop
+  anywhere, halfway through anything. The moment the input goes quiet the
+  page settles into a stop with one eased tween. No gesture is ever locked
+  out or swallowed: new input always cancels a settle and resumes the scrub.
+
+  The stops:
 
     0                 the hero at rest (headline pose)
     runway end        the globe pulled back (hp = 1, the showcase pose)
@@ -16,46 +21,58 @@ import { pageRevealed } from '@/lib/hero-loader'
     max scroll        the very end, so the footer is reachable
 
   Between two stops further apart than a viewport, evenly spaced intermediate
-  pages are inserted, so a tall section is read screen by screen instead of
-  being flung past. The last page inside a section aligns its bottom edge
-  with the viewport's, then the next gesture moves on.
+  pages are inserted so a tall section can be read screen by screen.
+
+  The hero runway is special twice over: scrubbing inside it is geared down
+  so the earth's pull back plays at half rate under the same gesture, and a
+  settle that travels through it stretches its tween, so the globe never
+  whips. See HERO_GEAR and settleDuration.
 
   Rules the implementation lives by:
 
-  - Gestures only. Programmatic scrolling (anchor jumps, the verify harness's
-    scrollTo, browser find in page) is never touched, and there is no settle
-    watcher that could fight it. The scrollbar stays a free scroll escape.
-  - Stateless. Stops are measured at gesture time from the live DOM, so
+  - Gestures only. Programmatic scrolling (anchor jumps, the verify
+    harness's scrollTo, browser find in page) is never touched. The
+    scrollbar stays a free scroll escape: the moment the position moves
+    without us, the conductor lets go.
+  - Stateless. Stops are measured at settle time from the live DOM, so
     resize, font swaps and content-visibility never leave a stale cache.
   - Nested scrollables win. A wheel or swipe over anything that scrolls
-    itself (tune panel, a menu sheet) is left alone until it is the page's
-    turn.
-  - The tween writes with behavior 'instant': the html rule
-    scroll-behavior smooth would otherwise turn every frame's write into its
-    own competing animation.
+    itself (tune panel, a menu sheet) is left alone.
+  - Every write uses behavior 'instant': the html rule scroll-behavior
+    smooth would otherwise turn each frame's write into its own competing
+    animation.
   - Runs regardless of prefers-reduced-motion, deliberately: the owner's
     machine reports reduce through Windows performance mode, and the scrub
     maps to the visitor's own gesture. See the same rule on the globe.
 */
 
-/** Wheel travel that counts as a deliberate flick (one mouse notch is 100). */
-const WHEEL_TRIGGER = 50
-/** A wheel event this long after the previous one is a new gesture, not the
-    inertia tail of the old one. Unlocks after a transition. */
-const WHEEL_QUIET_MS = 170
-/** Accumulated wheel travel resets after this much silence. */
-const WHEEL_RESET_MS = 250
-/** Vertical swipe distance that turns the page. */
-const TOUCH_TRIGGER = 60
-/** A stop must be at least this far away to be the next one; also absorbs
-    the small offset native anchor jumps add for the header. */
+/** Scrub gearing inside the hero runway: the tour plays this fraction of
+    the gesture's travel, so the earth pulls back unhurried. */
+const HERO_GEAR = 0.5
+/** Input this quiet means the gesture (and its inertia tail) is over. */
+const SETTLE_AFTER_MS = 150
+/** Travel past a stop that commits to the next one; anything shorter eases
+    back. Absolute, so one wheel notch advances a section but the geared
+    hero asks for a slightly more deliberate scroll. */
+const ADVANCE_PX = 100
+/** Smoothing time constant for the scrub loop, milliseconds. */
+const SCRUB_TAU = 90
+/** A stop must be at least this far away for a paging key to aim at it;
+    also absorbs the small offset native anchor jumps add for the header. */
 const STOP_EPSILON = 90
-/** Tween duration from distance: base + slope, clamped. The hero runway
-    (about 1.6 viewports) lands near a second, cinematic but not slow. */
-const tweenDuration = (dist: number) => Math.min(1300, Math.max(550, 400 + dist * 0.38))
 
 const easeInOutCubic = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+
+/** Settle duration from distance, stretched by however much of the path
+    lies inside the hero runway, where the globe is being scrubbed. */
+function settleDuration(from: number, to: number, runwayEnd: number): number {
+  const dist = Math.abs(to - from)
+  let d = Math.min(1300, Math.max(500, 380 + dist * 0.35))
+  const overlap = Math.max(0, Math.min(Math.max(from, to), runwayEnd) - Math.min(from, to))
+  if (dist > 0 && overlap > 0) d *= 1 + 1.3 * (overlap / dist)
+  return d
+}
 
 /** True if something between the event target and the body scrolls itself. */
 function insideScrollable(target: EventTarget | null): boolean {
@@ -72,14 +89,11 @@ function insideScrollable(target: EventTarget | null): boolean {
 
 /** The stop list, measured fresh from the live DOM. Sorted, deduped, with
     intermediate pages inserted wherever a hop would skip content. */
-function measureStops(): number[] {
+function measure(): { stops: number[]; runwayEnd: number; max: number } {
   const vh = window.innerHeight
   const max = Math.max(0, document.documentElement.scrollHeight - vh)
   const raw = [0, max]
 
-  /* The runway's end is the globe's showcase pose, and the whole runway is
-     one scrub, not content: no intermediate pages inside it, one flick plays
-     the entire pull back. */
   let runwayEnd = -1
   const runway = document.querySelector('.hero-runway')
   if (runway) {
@@ -107,17 +121,15 @@ function measureStops(): number[] {
   for (let i = 0; i < sorted.length; i++) {
     stops.push(sorted[i])
     if (i === sorted.length - 1) break
+    /* The runway is one scrub, never paged. */
     if (sorted[i + 1] <= runwayEnd + 1) continue
-    /* Content taller than the viewport between this stop and the next gets
-       paged evenly; the final page puts the next stop exactly one viewport
-       away, which bottom aligns the section being read. */
     const leftover = sorted[i + 1] - sorted[i] - vh
     if (leftover > vh * 0.2) {
       const pages = Math.ceil(leftover / (vh * 0.85))
       for (let k = 1; k <= pages; k++) stops.push(sorted[i] + (leftover * k) / pages)
     }
   }
-  return stops
+  return { stops, runwayEnd, max }
 }
 
 export function SectionSnap() {
@@ -128,73 +140,129 @@ export function SectionSnap() {
       if (!disposed) ready = true
     })
 
+    /* One rAF at a time, either the scrub loop or a settle tween. */
     let raf = 0
-    let animating = false
-    let travelDir = 0
-    let animStart = 0
+    let mode: 'idle' | 'scrub' | 'settle' = 'idle'
     let lastWritten = -1
-    let locked = false
-    let lastWheelAt = -Infinity
-    let wheelAccum = 0
+    /* The position the scrub is heading for; input moves it, the loop
+       chases it. `pos` is our own float position: scrollY quantises to
+       whole pixels, so converging against its readback stalls forever a
+       few pixels short. */
+    let virtual = 0
+    let pos = 0
+    let lastInputAt = 0
+    let lastDir = 0
+    let lastTick = 0
 
-    const cancelTween = () => {
+    const stopAnim = () => {
       if (raf) cancelAnimationFrame(raf)
       raf = 0
-      animating = false
-      travelDir = 0
+      mode = 'idle'
     }
+
+    /* The visitor moved the page without us (scrollbar, find in page):
+       let go entirely. */
+    const hijacked = () => Math.abs(window.scrollY - lastWritten) > 150
 
     /* A callable target is re-evaluated every frame: the End key aims at
        the document's true end, which grows mid flight as content-visibility
        sections render in. */
-    const tweenTo = (target: number | (() => number)) => {
-      cancelTween()
+    const settleTween = (target: number | (() => number), runwayEnd: number) => {
+      stopAnim()
       const from = window.scrollY
       const goalNow = typeof target === 'function' ? target() : target
       if (Math.abs(goalNow - from) < 1) return
-      animating = true
-      travelDir = Math.sign(goalNow - from)
-      animStart = performance.now()
+      mode = 'settle'
+      const start = performance.now()
+      const duration = settleDuration(from, goalNow, runwayEnd)
       lastWritten = from
-      const duration = tweenDuration(Math.abs(goalNow - from))
       const frame = (now: number) => {
-        /* A scrollbar drag mid tween moves the page out from under us;
-           yield instead of fighting the visitor for the thumb. The margin
-           is generous because deferred sections rendering in can nudge the
-           position a little on their own. */
-        if (Math.abs(window.scrollY - lastWritten) > 150) {
-          cancelTween()
+        if (hijacked()) {
+          stopAnim()
           return
         }
         const goal = typeof target === 'function' ? target() : target
-        const t = Math.min(1, (now - animStart) / duration)
-        const y = from + (goal - from) * easeInOutCubic(t)
-        window.scrollTo({ top: y, behavior: 'instant' })
+        const t = Math.min(1, (now - start) / duration)
+        window.scrollTo({
+          top: from + (goal - from) * easeInOutCubic(t),
+          behavior: 'instant',
+        })
         lastWritten = window.scrollY
         if (t < 1) raf = requestAnimationFrame(frame)
-        else cancelTween()
+        else stopAnim()
       }
       raf = requestAnimationFrame(frame)
     }
 
-    /* One step. Direction +1 or -1, from the live position. */
-    const go = (dir: number) => {
-      const stops = measureStops()
-      const cur = window.scrollY
-      const target =
-        dir > 0
-          ? stops.find((y) => y > cur + STOP_EPSILON)
-          : [...stops].reverse().find((y) => y < cur - STOP_EPSILON)
-      if (target === undefined) return
-      locked = true
-      tweenTo(target)
+    /* Pick the stop the current position should come to rest at: carried
+       forward past ADVANCE_PX of travel into a gap, eased back otherwise. */
+    const settle = () => {
+      const { stops, runwayEnd } = measure()
+      const y = window.scrollY
+      let below = -Infinity
+      let above = Infinity
+      for (const s of stops) {
+        if (s <= y && s > below) below = s
+        if (s > y && s < above) above = s
+      }
+      let target: number
+      if (below === -Infinity) target = above
+      else if (above === Infinity) target = below
+      else if (lastDir > 0) target = y - below >= ADVANCE_PX ? above : below
+      else if (lastDir < 0) target = above - y >= ADVANCE_PX ? below : above
+      else target = y - below <= above - y ? below : above
+      settleTween(target, runwayEnd)
     }
 
-    /* A gesture against the current travel turns the tween around. */
-    const maybeReverse = (dir: number) => {
-      if (dir !== -travelDir) return
-      if (performance.now() - animStart < 100) return
-      go(dir)
+    const frame = (now: number) => {
+      if (hijacked()) {
+        stopAnim()
+        return
+      }
+      const dt = Math.min(64, now - lastTick)
+      lastTick = now
+      const gap = virtual - pos
+      pos = Math.abs(gap) < 0.5 ? virtual : pos + gap * (1 - Math.exp(-dt / SCRUB_TAU))
+      window.scrollTo({ top: pos, behavior: 'instant' })
+      lastWritten = window.scrollY
+      if (pos === virtual && now - lastInputAt > SETTLE_AFTER_MS) {
+        stopAnim()
+        settle()
+        return
+      }
+      raf = requestAnimationFrame(frame)
+    }
+
+    /* Feed one input delta into the scrub. */
+    const scrubBy = (delta: number) => {
+      const now = performance.now()
+      lastInputAt = now
+      if (Math.abs(delta) > 0.5) lastDir = Math.sign(delta)
+      if (mode !== 'scrub') {
+        stopAnim()
+        virtual = window.scrollY
+        pos = window.scrollY
+        lastWritten = window.scrollY
+        lastTick = now
+        mode = 'scrub'
+        raf = requestAnimationFrame(frame)
+      }
+      /* Gear down inside the runway so the globe's pull back stays calm.
+         Strictly inside: standing exactly on the showcase stop, a downward
+         tick is leaving the runway and moves at full rate. */
+      const { runwayEnd, max } = measureRunway()
+      const geared = virtual < runwayEnd ? delta * HERO_GEAR : delta
+      virtual = Math.min(max, Math.max(0, virtual + geared))
+    }
+
+    /* The cheap subset of measure() the per-event path needs. */
+    const measureRunway = () => {
+      const vh = window.innerHeight
+      const max = Math.max(0, document.documentElement.scrollHeight - vh)
+      const runway = document.querySelector('.hero-runway')
+      if (!runway) return { runwayEnd: -1, max }
+      const rect = runway.getBoundingClientRect()
+      return { runwayEnd: Math.round(rect.top + window.scrollY + rect.height - vh), max }
     }
 
     const onWheel = (e: WheelEvent) => {
@@ -203,64 +271,44 @@ export function SectionSnap() {
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
       if (insideScrollable(e.target)) return
       e.preventDefault()
-
-      const now = performance.now()
-      const gap = now - lastWheelAt
-      lastWheelAt = now
       const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1
-      const delta = e.deltaY * scale
-      const dir = Math.sign(delta)
-
-      if (animating) {
-        maybeReverse(dir)
-        return
-      }
-      if (locked) {
-        /* Still swallowing the inertia tail of the last gesture. */
-        if (gap <= WHEEL_QUIET_MS) return
-        locked = false
-        wheelAccum = 0
-      }
-      if (gap > WHEEL_RESET_MS) wheelAccum = 0
-      wheelAccum += delta
-      if (Math.abs(wheelAccum) >= WHEEL_TRIGGER) {
-        wheelAccum = 0
-        go(dir)
-      }
+      scrubBy(e.deltaY * scale)
     }
 
+    let touchY = 0
     let touchStartY = 0
     let touchStartX = 0
-    let touchConsumed = false
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return
-      touchStartY = e.touches[0].clientY
+      touchY = e.touches[0].clientY
+      touchStartY = touchY
       touchStartX = e.touches[0].clientX
-      touchConsumed = false
     }
 
     const onTouchMove = (e: TouchEvent) => {
       if (!ready) return
       if (e.touches.length !== 1) return
       if (insideScrollable(e.target)) return
-      const dy = touchStartY - e.touches[0].clientY
-      const dx = touchStartX - e.touches[0].clientX
+      const cur = e.touches[0]
       /* Horizontal drags belong to the globe. */
-      if (Math.abs(dx) > Math.abs(dy)) return
+      if (Math.abs(cur.clientX - touchStartX) > Math.abs(cur.clientY - touchStartY)) return
       e.preventDefault()
-      if (touchConsumed) return
-      if (animating) {
-        if (Math.abs(dy) > TOUCH_TRIGGER) {
-          touchConsumed = true
-          maybeReverse(Math.sign(dy))
-        }
-        return
-      }
-      if (Math.abs(dy) > TOUCH_TRIGGER) {
-        touchConsumed = true
-        go(Math.sign(dy))
-      }
+      scrubBy(touchY - cur.clientY)
+      touchY = cur.clientY
+    }
+
+    /* Paging keys step whole stops, tweened like a settle. */
+    const go = (dir: number) => {
+      const { stops, runwayEnd } = measure()
+      const cur = window.scrollY
+      const target =
+        dir > 0
+          ? stops.find((s) => s > cur + STOP_EPSILON)
+          : [...stops].reverse().find((s) => s < cur - STOP_EPSILON)
+      if (target === undefined) return
+      lastDir = dir
+      settleTween(target, runwayEnd)
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -270,26 +318,21 @@ export function SectionSnap() {
       if (el?.closest('input, textarea, select, button, a, [contenteditable], [role="slider"]'))
         return
 
-      let dir = 0
-      let target: number | undefined
-      if (e.key === 'ArrowDown' || e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey)) dir = 1
-      else if (e.key === 'ArrowUp' || e.key === 'PageUp' || (e.key === ' ' && e.shiftKey)) dir = -1
-      else if (e.key === 'Home') target = 0
-      else if (e.key === 'End') target = -1
-      else return
-
-      e.preventDefault()
-      if (target !== undefined) {
-        locked = true
-        if (target < 0)
-          tweenTo(() =>
-            Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
-          )
-        else tweenTo(target)
-      } else if (animating) {
-        maybeReverse(dir)
-      } else {
-        go(dir)
+      if (e.key === 'ArrowDown' || e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey)) {
+        e.preventDefault()
+        go(1)
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp' || (e.key === ' ' && e.shiftKey)) {
+        e.preventDefault()
+        go(-1)
+      } else if (e.key === 'Home') {
+        e.preventDefault()
+        settleTween(0, measureRunway().runwayEnd)
+      } else if (e.key === 'End') {
+        e.preventDefault()
+        settleTween(
+          () => Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+          measureRunway().runwayEnd,
+        )
       }
     }
 
@@ -299,7 +342,7 @@ export function SectionSnap() {
     window.addEventListener('keydown', onKeyDown)
     return () => {
       disposed = true
-      cancelTween()
+      stopAnim()
       window.removeEventListener('wheel', onWheel)
       window.removeEventListener('touchstart', onTouchStart)
       window.removeEventListener('touchmove', onTouchMove)
