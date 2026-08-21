@@ -233,8 +233,8 @@ export default function TunePanelBody() {
           </div>
 
           <p className="border-t border-white/10 px-4 py-2 text-[0.6rem] leading-relaxed text-white/35">
-            Live on the globe as you drag. Copy exports only what changed; paste it to Claude to
-            bake permanently. Values persist in this browser until Reset.
+            Live on the globe as you drag. Copy exports only what changed; hand that over to bake it
+            permanently. Values persist in this browser until Reset.
           </p>
         </div>
       ) : null}
